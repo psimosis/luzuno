@@ -1,0 +1,72 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - idm_net
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: keycloak
+    restart: unless-stopped
+    depends_on:
+      - mysql
+    command: start --http-enabled=true --hostname=http://192.168.0.115:8080
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_DB: mysql
+      KC_DB_URL: jdbc:mysql://mysql:3306/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD}
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME: http://192.168.0.115:8080
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+    ports:
+      - "8080:8080"
+    networks:
+      - idm_net
+
+  agents-panel:
+    build:
+      context: ./agents-panel
+    image: agents-panel:latest
+    container_name: agents-panel
+    restart: unless-stopped
+    depends_on:
+      - mysql
+      - keycloak
+    environment:
+      PUBLIC_URL: http://192.168.0.115:3000
+      KEYCLOAK_BASE_URL: http://keycloak:8080
+      KEYCLOAK_PUBLIC_URL: http://192.168.0.115:8080
+      KEYCLOAK_REALM: agents-panel
+      KEYCLOAK_CLIENT_ID: agents-panel-web
+      KEYCLOAK_CLIENT_SECRET: ${PANEL_WEB_CLIENT_SECRET}
+      KEYCLOAK_ADMIN_CLIENT_ID: agents-panel-admin
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${PANEL_ADMIN_CLIENT_SECRET}
+      DB_HOST: mysql
+      DB_NAME: agents_panel
+      DB_USER: agents_panel
+      DB_PASSWORD: ${PANEL_DB_PASSWORD}
+      APP_SECRET: ${PANEL_APP_SECRET}
+      SESSION_SECRET: ${PANEL_SESSION_SECRET}
+    ports:
+      - "3000:3000"
+    networks:
+      - idm_net
+
+networks:
+  idm_net:
+    name: idm_net
+
+volumes:
+  mysql_data:
