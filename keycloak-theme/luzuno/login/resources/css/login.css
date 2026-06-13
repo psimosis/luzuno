@@ -1,0 +1,56 @@
+:root {
+  --luzuno-bg: #071326;
+  --luzuno-accent: #59c7ff;
+}
+
+body {
+  background:
+    linear-gradient(115deg, rgba(89, 199, 255, 0.12) 0 1px, transparent 1px 100%),
+    radial-gradient(circle at 12% 10%, rgba(89, 199, 255, 0.2), transparent 28%),
+    radial-gradient(circle at 88% 24%, rgba(47, 107, 255, 0.18), transparent 26%),
+    var(--luzuno-bg) !important;
+  background-size: 72px 72px, auto, auto, auto !important;
+}
+
+.login-pf body,
+.login-pf-page {
+  background: transparent !important;
+}
+
+#kc-header-wrapper {
+  color: transparent;
+  font-size: 0;
+  line-height: 0;
+  padding: 24px 0 10px;
+}
+
+#kc-header-wrapper::before {
+  content: "";
+  display: block;
+  width: min(360px, 82vw);
+  height: 96px;
+  margin: 0 auto;
+  background: url("../img/logo-luzuno.png") center / contain no-repeat;
+  filter: invert(1) brightness(2.3);
+}
+
+.login-pf-page .card-pf {
+  border-radius: 8px;
+  border: 1px solid rgba(89, 199, 255, 0.34);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+}
+
+#kc-page-title {
+  color: #102033;
+  font-weight: 800;
+}
+
+#kc-form-buttons input,
+#kc-form-buttons button,
+.pf-v5-c-button.pf-m-primary,
+.pf-c-button.pf-m-primary {
+  background: var(--luzuno-accent) !important;
+  border-color: var(--luzuno-accent) !important;
+  color: #052035 !important;
+  font-weight: 800;
+}

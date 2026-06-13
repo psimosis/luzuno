@@ -8,6 +8,8 @@ Panel web multitenant para administrar Anubs de ElevenLabs con autenticacion por
 - `keycloak`: autenticacion, usuarios y rol `Administrador`.
 - `mysql`: persistencia para Keycloak y el panel.
 
+El login de Keycloak usa el theme `keycloak-theme/luzuno`, montado en `/opt/keycloak/themes`.
+
 ## Funcionalidad
 
 - Login con Keycloak.
