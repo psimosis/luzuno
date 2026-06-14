@@ -12,8 +12,7 @@ export async function generateProfileImage(prompt) {
       model: process.env.OPENAI_IMAGE_MODEL || "gpt-image-1",
       prompt,
       size: process.env.OPENAI_IMAGE_SIZE || "1024x1024",
-      n: 1,
-      response_format: "b64_json"
+      n: 1
     })
   });
 
