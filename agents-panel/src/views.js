@@ -132,7 +132,7 @@ export function agentDetail(req, agent, local, message = "", error = "") {
     ${message ? `<div class="notice">${esc(message)}</div>` : ""}
     ${error ? `<div class="alert">${esc(error)}</div>` : ""}
     <section class="agent-editor-grid">
-      <article class="panel">
+      <article class="panel quadrant-data">
         <h2>Datos principales</h2>
         <dl class="details">
           <dt>Estado</dt><dd>${agent.archived ? "Archivado" : "Activo"}</dd>
@@ -141,16 +141,22 @@ export function agentDetail(req, agent, local, message = "", error = "") {
           <dt>Tags</dt><dd>${(agent.tags || []).map((tag) => `<span class="tag">${esc(tag)}</span>`).join("") || "-"}</dd>
         </dl>
       </article>
-      <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/profile-image" data-generation-form>
+      <article class="panel form quadrant-photo">
         <h2>Foto de Perfil</h2>
-        <div class="profile-preview">${profileImageMarkup(local.profile_image_path, "profile-image")}</div>
-        <label>Estilo de la foto</label>
-        <select name="imageStyle">${imageStyleOptions(local.profile_image_style || "Corporativa")}</select>
-        <label>Caracteristicas de la Persona</label>
-        <textarea name="imagePrompt" rows="4" placeholder="Ej: mujer ejecutiva de 35 anos, cabello oscuro, expresion amable">${esc(local.profile_image_prompt || "")}</textarea>
-        <button class="primary" type="submit">Generar Imagen de Perfil</button>
-      </form>
-      <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/local">
+        <form class="form compact-form" method="post" action="/agents/${esc(agent.agent_id)}/profile-image" data-generation-form>
+          <div class="profile-preview">${profileImageMarkup(local.profile_image_path, "profile-image")}</div>
+          <label>Estilo de la foto</label>
+          <select name="imageStyle">${imageStyleOptions(local.profile_image_style || "Corporativa")}</select>
+          <label>Caracteristicas de la Persona</label>
+          <textarea name="imagePrompt" rows="4" placeholder="Ej: mujer ejecutiva de 35 anos, cabello oscuro, expresion amable">${esc(local.profile_image_prompt || "")}</textarea>
+          <button class="primary" type="submit">Generar Imagen de Perfil</button>
+        </form>
+        <form class="form compact-form upload-form" method="post" action="/agents/${esc(agent.agent_id)}/profile-image/upload" enctype="multipart/form-data">
+          <input name="profileImage" type="file" accept="image/png,image/jpeg,image/webp" required>
+          <button class="secondary" type="submit">Subir una Imagen</button>
+        </form>
+      </article>
+      <form class="panel form quadrant-notes" method="post" action="/agents/${esc(agent.agent_id)}/local">
         <h2>Notas locales</h2>
         <label>Nombre interno</label>
         <input name="display_name" value="${esc(local.display_name || "")}">
@@ -158,8 +164,8 @@ export function agentDetail(req, agent, local, message = "", error = "") {
         <textarea name="notes" rows="8">${esc(local.notes || "")}</textarea>
         <button class="secondary" type="submit">Guardar notas</button>
       </form>
-      <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/prompt">
-        <h2>Instrucciones del Anub</h2>
+      <form class="panel form quadrant-prompt" method="post" action="/agents/${esc(agent.agent_id)}/prompt">
+        <h2>Instrucciones de Comportamiento</h2>
         <textarea class="code prompt-editor" name="systemPrompt" rows="12">${esc(systemPrompt)}</textarea>
         <button class="primary" type="submit">Guardar Configuracion</button>
       </form>

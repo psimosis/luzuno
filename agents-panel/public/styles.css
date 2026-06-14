@@ -272,13 +272,27 @@ h2 { margin: 0 0 16px; font-size: 18px; }
 }
 .agent-editor-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  align-items: start;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas:
+    "data photo"
+    "prompt notes";
+  align-items: stretch;
   gap: 16px;
   margin-bottom: 16px;
 }
 .agent-editor-grid .panel {
   min-height: 100%;
+}
+.quadrant-data { grid-area: data; }
+.quadrant-photo { grid-area: photo; }
+.quadrant-prompt { grid-area: prompt; }
+.quadrant-notes { grid-area: notes; }
+.compact-form {
+  margin: 0;
+}
+.upload-form {
+  border-top: 1px solid #e0e8f2;
+  padding-top: 12px;
 }
 .panel { padding: 18px; margin-bottom: 16px; }
 .form { display: flex; flex-direction: column; gap: 10px; }

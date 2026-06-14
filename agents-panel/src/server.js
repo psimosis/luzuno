@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import express from "express";
+import multer from "multer";
 import session from "express-session";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { migrate, upsertUserProfile, getUserSettings, getApiKey, setApiKeyForUser, listUserSettings, saveAgentSettings, getAgentSettings, listAgentSettingsForUser, saveAgentProfileImage } from "./db.js";
@@ -17,6 +18,14 @@ const clientSecret = process.env.KEYCLOAK_CLIENT_SECRET;
 const publicUrl = process.env.PUBLIC_URL || "http://192.168.0.115:3000";
 const jwks = createRemoteJWKSet(new URL(`${internalIssuer}/protocol/openid-connect/certs`));
 const imageDir = process.env.AGENT_IMAGE_DIR || "/app/data/agent-images";
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, callback) => {
+    if (["image/png", "image/jpeg", "image/webp"].includes(file.mimetype)) return callback(null, true);
+    return callback(new Error("Formato no soportado. Usa PNG, JPG o WebP."));
+  }
+});
 
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 app.use(express.json({ limit: "2mb" }));
@@ -74,6 +83,34 @@ function profileImagePrompt(agent, instructions, style) {
     `Selected photo style: ${style}. ${profileStylePrompt(style)}`,
     requestedDescription
   ].join("\n");
+}
+
+function safeSegment(value) {
+  return String(value).replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+function profileImageExtension(mimetype) {
+  const extensions = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp"
+  };
+  return extensions[mimetype] || "png";
+}
+
+async function replaceProfileImage(userId, agentId, imageBuffer, extension, prompt, style) {
+  await fs.mkdir(imageDir, { recursive: true });
+  const filename = `${safeSegment(userId)}-${safeSegment(agentId)}.${extension}`;
+  const imagePath = path.join(imageDir, filename);
+  const local = await getAgentSettings(userId, agentId);
+  const previousPath = local.profile_image_path ? new URL(local.profile_image_path, publicUrl).pathname : "";
+  if (previousPath && previousPath.startsWith("/agent-images/") && path.basename(previousPath) !== filename) {
+    await fs.unlink(path.join(imageDir, path.basename(previousPath))).catch((error) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+  }
+  await fs.writeFile(imagePath, imageBuffer);
+  await saveAgentProfileImage(userId, agentId, `/agent-images/${filename}?v=${Date.now()}`, prompt, style);
 }
 
 app.get("/", (req, res) => {
@@ -190,18 +227,28 @@ app.post("/agents/:agentId/profile-image", requireAuth, async (req, res, next) =
     const agent = await getAgent(apiKey, req.params.agentId);
     const prompt = profileImagePrompt(agent, instructions, imageStyle);
     const imageBuffer = await generateProfileImage(prompt);
-    await fs.mkdir(imageDir, { recursive: true });
-    const filename = `${req.session.user.sub.replace(/[^a-zA-Z0-9_-]/g, "_")}-${req.params.agentId.replace(/[^a-zA-Z0-9_-]/g, "_")}.png`;
-    const imagePath = path.join(imageDir, filename);
+    await replaceProfileImage(req.session.user.sub, req.params.agentId, imageBuffer, "png", instructions, imageStyle);
+    res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}?image=1`);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/agents/:agentId/profile-image/upload", requireAuth, upload.single("profileImage"), async (req, res, next) => {
+  try {
+    const apiKey = await getApiKey(req.session.user.sub);
+    if (!apiKey) return res.status(403).send("Cuenta nueva, aguarde a que un administrador de Luzuno configure su cuenta.");
+    if (!req.file) return res.status(400).send("Selecciona una imagen para subir.");
     const local = await getAgentSettings(req.session.user.sub, req.params.agentId);
-    const previousPath = local.profile_image_path ? new URL(local.profile_image_path, publicUrl).pathname : "";
-    if (previousPath && previousPath.startsWith("/agent-images/") && path.basename(previousPath) !== filename) {
-      await fs.unlink(path.join(imageDir, path.basename(previousPath))).catch((error) => {
-        if (error.code !== "ENOENT") throw error;
-      });
-    }
-    await fs.writeFile(imagePath, imageBuffer);
-    await saveAgentProfileImage(req.session.user.sub, req.params.agentId, `/agent-images/${filename}?v=${Date.now()}`, instructions, imageStyle);
+    const extension = profileImageExtension(req.file.mimetype);
+    await replaceProfileImage(
+      req.session.user.sub,
+      req.params.agentId,
+      req.file.buffer,
+      extension,
+      local.profile_image_prompt || "",
+      local.profile_image_style || "Corporativa"
+    );
     res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}?image=1`);
   } catch (error) {
     next(error);
