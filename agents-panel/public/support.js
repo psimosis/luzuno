@@ -1,6 +1,5 @@
-import { AnamEvent, createClient } from "/vendor/anam-sdk/index.js";
-
 const config = JSON.parse(document.getElementById("support-config")?.textContent || "{}");
+const { AnamEvent, createClient } = window.anam || {};
 const presets = config.presets || [];
 let selectedIndex = 0;
 let client = null;
@@ -28,8 +27,10 @@ function setStatus(nextStatus) {
   document.body.classList.toggle("support-session-active", active);
   connecting.classList.toggle("is-visible", status === "connecting");
   preview.classList.toggle("is-hidden", active);
-  startButton.disabled = active || !currentPreset();
+  startButton.disabled = active || !currentPreset() || !createClient;
+  startButton.classList.toggle("is-hidden", active);
   stopButton.disabled = status !== "connected";
+  stopButton.classList.toggle("is-visible", status === "connected");
   prevButton.disabled = active || presets.length < 2;
   nextButton.disabled = active || presets.length < 2;
 }
@@ -73,6 +74,10 @@ function renderPersonas() {
 
 async function start() {
   const preset = currentPreset();
+  if (!createClient || !AnamEvent) {
+    setError("No se pudo cargar el SDK de Anam.");
+    return;
+  }
   if (!preset) {
     setError("No hay una persona de soporte configurada.");
     return;

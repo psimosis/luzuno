@@ -233,11 +233,16 @@ export function supportPage(req, presets, adminUsers = [], selectedUserId = "", 
           <video id="support-avatar-video" autoplay playsinline></video>
           <img id="support-avatar-preview" class="support-preview-image" src="${esc(presets[0]?.previewImage || "/support-avatar-preview.png")}" alt="Soporte Tecnico">
           <div id="support-connecting" class="support-connecting">Conectando...</div>
+          <button id="support-start" class="support-phone-button" type="button" aria-label="Iniciar comunicacion">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/></svg>
+          </button>
+          <button id="support-stop" class="support-phone-button support-end-button" type="button" aria-label="Finalizar comunicacion">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/></svg>
+          </button>
         </div>
         <div class="support-controls">
           <button id="support-prev" class="support-round-button" type="button" aria-label="Anterior">‹</button>
-          <button id="support-start" class="primary" type="button">Iniciar comunicacion</button>
-          <button id="support-stop" class="danger" type="button">Finalizar</button>
+          <span class="support-call-hint">Presione el telefono para iniciar</span>
           <button id="support-next" class="support-round-button" type="button" aria-label="Siguiente">›</button>
         </div>
         <div id="support-personas" class="support-personas"></div>
@@ -249,7 +254,8 @@ export function supportPage(req, presets, adminUsers = [], selectedUserId = "", 
       </article>
     </section>
     <script id="support-config" type="application/json">${scriptJson(config)}</script>
-    <script type="module" src="/support.js"></script>
+    <script src="/vendor/anam/anam.js"></script>
+    <script src="/support.js"></script>
   `, { adminUsers, selectedUserId });
 }
 

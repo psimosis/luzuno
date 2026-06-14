@@ -30,7 +30,7 @@ const upload = multer({
 
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 app.use(express.json({ limit: "2mb" }));
-app.use("/vendor/anam-sdk", express.static("node_modules/@anam-ai/js-sdk/dist/module", { extensions: ["js"] }));
+app.use("/vendor/anam", express.static("node_modules/@anam-ai/js-sdk/dist/umd"));
 app.use(express.static("public"));
 app.use("/agent-images", express.static(imageDir));
 app.use(session({

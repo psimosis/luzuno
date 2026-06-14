@@ -217,11 +217,57 @@ h2 { margin: 0 0 16px; font-size: 18px; }
 .support-connecting.is-visible {
   display: grid;
 }
+.support-phone-button {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  width: 62px;
+  height: 62px;
+  min-height: 62px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.24);
+  color: #ffffff;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 2;
+}
+.support-phone-button svg {
+  width: 30px;
+  height: 30px;
+  fill: currentColor;
+}
+.support-phone-button:hover {
+  background: rgba(255, 255, 255, 0.34);
+  transform: translateX(-50%) scale(1.06);
+}
+.support-phone-button.is-hidden {
+  display: none;
+}
+.support-end-button {
+  display: none;
+  background: rgba(239, 68, 68, 0.24);
+  color: #fecaca;
+}
+.support-end-button.is-visible {
+  display: inline-flex;
+}
 .support-controls {
   display: grid;
-  grid-template-columns: 42px 1fr 1fr 42px;
+  grid-template-columns: 42px 1fr 42px;
+  align-items: center;
   gap: 10px;
   margin-top: 14px;
+}
+.support-call-hint {
+  color: var(--muted-dark);
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
 }
 .support-round-button {
   width: 42px;
