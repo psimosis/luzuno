@@ -61,8 +61,13 @@ services:
       DB_PASSWORD: ${PANEL_DB_PASSWORD}
       APP_SECRET: ${PANEL_APP_SECRET}
       SESSION_SECRET: ${PANEL_SESSION_SECRET}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL}
+      AGENT_IMAGE_DIR: /app/data/agent-images
     ports:
       - "3000:3000"
+    volumes:
+      - agents_panel_data:/app/data
     networks:
       - idm_net
 
@@ -72,3 +77,5 @@ networks:
 
 volumes:
   mysql_data:
+    name: mysql_data
+  agents_panel_data:

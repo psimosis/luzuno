@@ -148,12 +148,57 @@ h2 { margin: 0 0 16px; font-size: 18px; }
   justify-content: space-between;
   gap: 12px;
 }
+.agent-card-side {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+  flex: 0 0 auto;
+}
 .agent-card h2 {
   margin: 0;
   font-size: 52px;
   color: #0b6fb3;
   line-height: 1.2;
   overflow-wrap: anywhere;
+}
+.agent-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #fff;
+  border: 1px solid #dbeafe;
+  box-shadow: 0 10px 24px rgba(12, 74, 110, 0.16);
+}
+.profile-preview {
+  width: 100%;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+.profile-image {
+  width: min(280px, 100%);
+  aspect-ratio: 1;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #fff;
+  border: 1px solid #dbeafe;
+  box-shadow: 0 12px 28px rgba(12, 74, 110, 0.16);
+}
+.avatar-placeholder {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 35%, #cbd5e1 0 14%, transparent 14.5%),
+    radial-gradient(circle at 50% 92%, #cbd5e1 0 34%, transparent 34.5%),
+    linear-gradient(145deg, #ffffff, #f1f5f9);
+}
+.profile-image.avatar-placeholder {
+  min-height: 240px;
 }
 .tag, .pill {
   display: inline-flex;
@@ -187,6 +232,10 @@ h2 { margin: 0 0 16px; font-size: 18px; }
   grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
   gap: 16px;
   margin-bottom: 16px;
+}
+.side-stack {
+  display: flex;
+  flex-direction: column;
 }
 .panel { padding: 18px; margin-bottom: 16px; }
 .form { display: flex; flex-direction: column; gap: 10px; }

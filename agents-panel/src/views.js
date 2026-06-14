@@ -62,12 +62,22 @@ export function loginPage(message = "") {
 </html>`;
 }
 
-export function dashboard(req, agents, settings, error) {
+function profileImageMarkup(path, className = "agent-avatar") {
+  return path
+    ? `<img class="${className}" src="${esc(path)}" alt="Foto de perfil">`
+    : `<div class="${className} avatar-placeholder" aria-label="Sin foto de perfil"></div>`;
+}
+
+export function dashboard(req, agents, settings, agentSettings = [], error = "") {
+  const imagesByAgent = new Map(agentSettings.map((item) => [item.agent_id, item.profile_image_path]));
   const cards = agents.map((agent) => `
     <a class="agent-card" href="/agents/${esc(agent.agent_id)}">
       <div class="agent-card-header">
         <h2>${esc(agent.name || "Sin nombre")}</h2>
-        <span class="${agent.archived ? "pill inactive-pill" : "pill active-pill"}">${agent.archived ? "Inactivo" : "Activo"}</span>
+        <div class="agent-card-side">
+          ${profileImageMarkup(imagesByAgent.get(agent.agent_id))}
+          <span class="${agent.archived ? "pill inactive-pill" : "pill active-pill"}">${agent.archived ? "Inactivo" : "Activo"}</span>
+        </div>
       </div>
       <p class="meta">ID ${esc(agent.agent_id)}</p>
       <p>${(agent.tags || []).map((tag) => `<span class="tag">${esc(tag)}</span>`).join("")}</p>
@@ -112,14 +122,23 @@ export function agentDetail(req, agent, local, message = "", error = "") {
           <dt>Tags</dt><dd>${(agent.tags || []).map((tag) => `<span class="tag">${esc(tag)}</span>`).join("") || "-"}</dd>
         </dl>
       </article>
-      <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/local">
-        <h2>Notas locales</h2>
-        <label>Nombre interno</label>
-        <input name="display_name" value="${esc(local.display_name || "")}">
-        <label>Notas</label>
-        <textarea name="notes" rows="8">${esc(local.notes || "")}</textarea>
-        <button class="secondary" type="submit">Guardar notas</button>
-      </form>
+      <div class="side-stack">
+        <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/profile-image">
+          <h2>Foto de Perfil</h2>
+          <div class="profile-preview">${profileImageMarkup(local.profile_image_path, "profile-image")}</div>
+          <label>Instrucciones de generacion</label>
+          <textarea name="imagePrompt" rows="4" placeholder="Ej: perfil corporativo futurista, tonos azules, aspecto profesional">${esc(local.profile_image_prompt || "")}</textarea>
+          <button class="primary" type="submit">Generar Imagen de Perfil</button>
+        </form>
+        <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/local">
+          <h2>Notas locales</h2>
+          <label>Nombre interno</label>
+          <input name="display_name" value="${esc(local.display_name || "")}">
+          <label>Notas</label>
+          <textarea name="notes" rows="8">${esc(local.notes || "")}</textarea>
+          <button class="secondary" type="submit">Guardar notas</button>
+        </form>
+      </div>
     </section>
     <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/prompt">
       <h2>Instrucciones del Anub</h2>

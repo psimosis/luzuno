@@ -46,6 +46,12 @@ export async function migrate() {
   await db.query("ALTER TABLE agent_settings ADD COLUMN system_prompt TEXT NULL").catch((error) => {
     if (error.code !== "ER_DUP_FIELDNAME") throw error;
   });
+  await db.query("ALTER TABLE agent_settings ADD COLUMN profile_image_path VARCHAR(512) NULL").catch((error) => {
+    if (error.code !== "ER_DUP_FIELDNAME") throw error;
+  });
+  await db.query("ALTER TABLE agent_settings ADD COLUMN profile_image_prompt TEXT NULL").catch((error) => {
+    if (error.code !== "ER_DUP_FIELDNAME") throw error;
+  });
 }
 
 function secretKey() {
@@ -130,19 +136,23 @@ export async function listUserSettings() {
 
 export async function saveAgentSettings(userId, agentId, values) {
   await getPool().execute(
-    `INSERT INTO agent_settings (user_id, agent_id, display_name, notes, system_prompt, patch_template)
-     VALUES (:user_id, :agent_id, :display_name, :notes, :system_prompt, :patch_template)
+    `INSERT INTO agent_settings (user_id, agent_id, display_name, notes, system_prompt, patch_template, profile_image_path, profile_image_prompt)
+     VALUES (:user_id, :agent_id, :display_name, :notes, :system_prompt, :patch_template, :profile_image_path, :profile_image_prompt)
      ON DUPLICATE KEY UPDATE display_name = COALESCE(VALUES(display_name), display_name),
        notes = COALESCE(VALUES(notes), notes),
        system_prompt = COALESCE(VALUES(system_prompt), system_prompt),
-       patch_template = COALESCE(VALUES(patch_template), patch_template)`,
+       patch_template = COALESCE(VALUES(patch_template), patch_template),
+       profile_image_path = COALESCE(VALUES(profile_image_path), profile_image_path),
+       profile_image_prompt = COALESCE(VALUES(profile_image_prompt), profile_image_prompt)`,
     {
       user_id: userId,
       agent_id: agentId,
       display_name: values.display_name ?? null,
       notes: values.notes ?? null,
       system_prompt: values.system_prompt ?? null,
-      patch_template: values.patch_template ?? null
+      patch_template: values.patch_template ?? null,
+      profile_image_path: values.profile_image_path ?? null,
+      profile_image_prompt: values.profile_image_prompt ?? null
     }
   );
 }
@@ -153,4 +163,23 @@ export async function getAgentSettings(userId, agentId) {
     [userId, agentId]
   );
   return rows[0] || {};
+}
+
+export async function listAgentSettingsForUser(userId) {
+  const [rows] = await getPool().execute(
+    "SELECT agent_id, profile_image_path, profile_image_prompt FROM agent_settings WHERE user_id = ?",
+    [userId]
+  );
+  return rows;
+}
+
+export async function saveAgentProfileImage(userId, agentId, imagePath, prompt) {
+  await saveAgentSettings(userId, agentId, {
+    display_name: null,
+    notes: null,
+    system_prompt: null,
+    patch_template: null,
+    profile_image_path: imagePath,
+    profile_image_prompt: prompt
+  });
 }

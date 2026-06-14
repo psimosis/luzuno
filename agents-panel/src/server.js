@@ -1,9 +1,12 @@
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import express from "express";
 import session from "express-session";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { migrate, upsertUserProfile, getUserSettings, getApiKey, setApiKeyForUser, listUserSettings, saveAgentSettings, getAgentSettings } from "./db.js";
+import { migrate, upsertUserProfile, getUserSettings, getApiKey, setApiKeyForUser, listUserSettings, saveAgentSettings, getAgentSettings, listAgentSettingsForUser, saveAgentProfileImage } from "./db.js";
 import { listAgents, getAgent, updateAgent, publishAgent } from "./elevenlabs.js";
+import { generateProfileImage } from "./openai-images.js";
 import { adminPage, agentDetail, dashboard, loginPage } from "./views.js";
 import { authUrl, hasAdminRole, internalIssuer, listUsers, createUser, deleteUser, resetPassword, setUserAdmin, tokenUrl, logoutUrl, oidcIssuer } from "./keycloak.js";
 
@@ -13,10 +16,12 @@ const clientId = process.env.KEYCLOAK_CLIENT_ID || "agents-panel-web";
 const clientSecret = process.env.KEYCLOAK_CLIENT_SECRET;
 const publicUrl = process.env.PUBLIC_URL || "http://192.168.0.115:3000";
 const jwks = createRemoteJWKSet(new URL(`${internalIssuer}/protocol/openid-connect/certs`));
+const imageDir = process.env.AGENT_IMAGE_DIR || "/app/data/agent-images";
 
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static("public"));
+app.use("/agent-images", express.static(imageDir));
 app.use(session({
   secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex"),
   resave: false,
@@ -45,6 +50,16 @@ function systemPromptPatch(systemPrompt) {
       }
     }
   };
+}
+
+function profileImagePrompt(agent, instructions) {
+  const name = agent.name || agent.agent_id;
+  return [
+    `Generate a square corporate profile image for an AI agent named "${name}".`,
+    "Style: professional, modern artificial intelligence, clean Luzuno-style technology aesthetic, suitable for a business control panel avatar.",
+    "Avoid readable text, watermarks, UI mockups, brand logos, and photorealistic depictions of a real identifiable person.",
+    `Specific instructions from the user: ${instructions}`
+  ].join("\n");
 }
 
 app.get("/", (req, res) => {
@@ -118,6 +133,7 @@ app.get("/logout", (req, res) => {
 
 app.get("/dashboard", requireAuth, async (req, res) => {
   const settings = await getUserSettings(req.session.user.sub);
+  const agentSettings = await listAgentSettingsForUser(req.session.user.sub);
   let agents = [];
   let error = "";
   const apiKey = await getApiKey(req.session.user.sub);
@@ -129,7 +145,7 @@ app.get("/dashboard", requireAuth, async (req, res) => {
       error = err.message;
     }
   }
-  res.send(dashboard(req, agents, settings, error));
+  res.send(dashboard(req, agents, settings, agentSettings, error));
 });
 
 app.get("/settings", requireAuth, (_req, res) => res.redirect("/dashboard"));
@@ -141,7 +157,28 @@ app.get("/agents/:agentId", requireAuth, async (req, res, next) => {
     if (!apiKey) return res.redirect("/dashboard");
     const agent = await getAgent(apiKey, req.params.agentId);
     const local = await getAgentSettings(req.session.user.sub, req.params.agentId);
-    res.send(agentDetail(req, agent, local, req.query.saved ? "Configuracion guardada y publicada." : ""));
+    const message = req.query.saved ? "Configuracion guardada y publicada." : req.query.image ? "Foto de perfil generada." : "";
+    res.send(agentDetail(req, agent, local, message));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/agents/:agentId/profile-image", requireAuth, async (req, res, next) => {
+  try {
+    const apiKey = await getApiKey(req.session.user.sub);
+    if (!apiKey) return res.status(403).send("Cuenta nueva, aguarde a que un administrador de Luzuno configure su cuenta.");
+    const instructions = String(req.body.imagePrompt || "").trim();
+    if (!instructions) return res.status(400).send("Ingresa instrucciones para generar la imagen de perfil.");
+    const agent = await getAgent(apiKey, req.params.agentId);
+    const prompt = profileImagePrompt(agent, instructions);
+    const imageBuffer = await generateProfileImage(prompt);
+    await fs.mkdir(imageDir, { recursive: true });
+    const filename = `${req.session.user.sub.replace(/[^a-zA-Z0-9_-]/g, "_")}-${req.params.agentId.replace(/[^a-zA-Z0-9_-]/g, "_")}-${crypto.randomUUID()}.png`;
+    const imagePath = path.join(imageDir, filename);
+    await fs.writeFile(imagePath, imageBuffer);
+    await saveAgentProfileImage(req.session.user.sub, req.params.agentId, `/agent-images/${filename}`, instructions);
+    res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}?image=1`);
   } catch (error) {
     next(error);
   }
@@ -240,6 +277,7 @@ app.use((err, req, res, _next) => {
   res.status(500).send(req.session?.user ? `<pre>${String(err.stack || err.message || err)}</pre>` : loginPage("Ocurrio un error iniciando sesion."));
 });
 
+await fs.mkdir(imageDir, { recursive: true });
 await migrate();
 app.listen(port, () => {
   console.log(`Control Panel listening on ${port}`);
