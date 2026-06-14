@@ -276,17 +276,20 @@ h2 { margin: 0 0 16px; font-size: 18px; }
   grid-template-areas:
     "data photo"
     "prompt notes";
-  align-items: stretch;
+  align-items: start;
   gap: 16px;
   margin-bottom: 16px;
-}
-.agent-editor-grid .panel {
-  min-height: 100%;
 }
 .quadrant-data { grid-area: data; }
 .quadrant-photo { grid-area: photo; }
 .quadrant-prompt { grid-area: prompt; }
 .quadrant-notes { grid-area: notes; }
+.quadrant-prompt {
+  min-height: 520px;
+}
+.quadrant-prompt .prompt-editor {
+  flex: 1;
+}
 .compact-form {
   margin: 0;
 }

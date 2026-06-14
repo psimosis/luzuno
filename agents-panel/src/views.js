@@ -133,7 +133,7 @@ export function agentDetail(req, agent, local, message = "", error = "") {
     ${error ? `<div class="alert">${esc(error)}</div>` : ""}
     <section class="agent-editor-grid">
       <article class="panel quadrant-data">
-        <h2>Datos principales</h2>
+        <h2>Datos Principales</h2>
         <dl class="details">
           <dt>Estado</dt><dd>${agent.archived ? "Archivado" : "Activo"}</dd>
           <dt>Creado</dt><dd>${agent.created_at_unix_secs ? new Date(agent.created_at_unix_secs * 1000).toLocaleString("es-AR") : "-"}</dd>
@@ -152,6 +152,7 @@ export function agentDetail(req, agent, local, message = "", error = "") {
           <button class="primary" type="submit">Generar Imagen de Perfil</button>
         </form>
         <form class="form compact-form upload-form" method="post" action="/agents/${esc(agent.agent_id)}/profile-image/upload" enctype="multipart/form-data">
+          <label>Subir una foto desde su PC</label>
           <input name="profileImage" type="file" accept="image/png,image/jpeg,image/webp" required>
           <button class="secondary" type="submit">Subir una Imagen</button>
         </form>
