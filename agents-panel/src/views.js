@@ -14,7 +14,14 @@ function currentSystemPrompt(agent) {
   return prompt?.prompt || "";
 }
 
-export function layout(req, title, body) {
+function headerTenantSelector(req, adminUsers = [], selectedUserId = "") {
+  if (!hasAdminRole(req.session.user) || !adminUsers.length) return "";
+  return `<form class="header-tenant-selector" method="get" action="/dashboard">
+    <select name="userId" onchange="this.form.submit()">${adminUserOptions(adminUsers, selectedUserId)}</select>
+  </form>`;
+}
+
+export function layout(req, title, body, options = {}) {
   const user = req.session.user;
   const admin = hasAdminRole(user);
   return `<!doctype html>
@@ -35,7 +42,7 @@ export function layout(req, title, body) {
   <header class="topbar">
     <a class="brand" href="/dashboard"><img src="/logo-luzuno.png" alt="Luzuno"><span>Panel de Control</span></a>
     <nav>
-      ${user ? `<a href="/dashboard">Dashboard</a>${admin ? `<a href="/admin">Administracion</a>` : ""}<a href="/logout">Salir</a>` : ""}
+      ${user ? `<a href="/dashboard">Dashboard</a>${headerTenantSelector(req, options.adminUsers, options.selectedUserId)}${admin ? `<a href="/admin">Administracion</a>` : ""}<a href="/logout">Salir</a>` : ""}
     </nav>
   </header>
   <main>${body}</main>
@@ -126,20 +133,15 @@ export function dashboard(req, agents, settings, agentSettings = [], error = "",
     </a>`).join("");
   return layout(req, "Dashboard", `
     <section class="page-head">
-      <div class="dashboard-title-row">
-        ${hasAdminRole(req.session.user) ? `<form class="tenant-selector" method="get" action="/dashboard">
-          <select name="userId" onchange="this.form.submit()">${adminUserOptions(adminUsers, selectedUserId)}</select>
-        </form>` : ""}
-        <div>
-          <p class="eyebrow">Dashboard</p>
-          <h1>Anubs Disponibles</h1>
-        </div>
+      <div>
+        <p class="eyebrow">Dashboard</p>
+        <h1>Anubs Disponibles</h1>
       </div>
     </section>
     ${error ? `<div class="alert">${esc(error)}</div>` : ""}
     ${!settings?.api_key_last4 ? `<div class="notice">Cuenta nueva, aguarde a que un administrador de Luzuno configure su cuenta.</div>` : ""}
     <section class="cards">${cards || `<div class="empty">No hay Anubs para mostrar</div>`}</section>
-  `);
+  `, { adminUsers, selectedUserId });
 }
 
 export function agentDetail(req, agent, local, message = "", error = "", selectedUserId = "") {
