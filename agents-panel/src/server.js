@@ -3,7 +3,7 @@ import express from "express";
 import session from "express-session";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { migrate, upsertUserProfile, getUserSettings, getApiKey, setApiKeyForUser, listUserSettings, saveAgentSettings, getAgentSettings } from "./db.js";
-import { listAgents, getAgent, updateAgent } from "./elevenlabs.js";
+import { listAgents, getAgent, updateAgent, publishAgent } from "./elevenlabs.js";
 import { adminPage, agentDetail, dashboard, loginPage } from "./views.js";
 import { authUrl, hasAdminRole, internalIssuer, listUsers, createUser, deleteUser, resetPassword, setUserAdmin, tokenUrl, logoutUrl, oidcIssuer } from "./keycloak.js";
 
@@ -141,7 +141,7 @@ app.get("/agents/:agentId", requireAuth, async (req, res, next) => {
     if (!apiKey) return res.redirect("/dashboard");
     const agent = await getAgent(apiKey, req.params.agentId);
     const local = await getAgentSettings(req.session.user.sub, req.params.agentId);
-    res.send(agentDetail(req, agent, local, req.query.saved ? "Prompt guardado." : ""));
+    res.send(agentDetail(req, agent, local, req.query.saved ? "Configuracion guardada y publicada." : ""));
   } catch (error) {
     next(error);
   }
@@ -170,6 +170,7 @@ app.post("/agents/:agentId/prompt", requireAuth, async (req, res, next) => {
       patch_template: JSON.stringify(patch)
     });
     await updateAgent(apiKey, req.params.agentId, patch);
+    await publishAgent(apiKey, req.params.agentId);
     res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}?saved=1`);
   } catch (error) {
     next(error);

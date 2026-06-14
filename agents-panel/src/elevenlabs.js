@@ -44,3 +44,38 @@ export async function updateAgent(apiKey, agentId, patch) {
     body: JSON.stringify(patch)
   });
 }
+
+export async function listAgentBranches(apiKey, agentId) {
+  return elevenFetch(apiKey, `/v1/convai/agents/${encodeURIComponent(agentId)}/branches?limit=100`);
+}
+
+export async function createDeployment(apiKey, agentId, branchId) {
+  return elevenFetch(apiKey, `/v1/convai/agents/${encodeURIComponent(agentId)}/deployments`, {
+    method: "POST",
+    body: JSON.stringify({
+      deployment_request: {
+        requests: [
+          {
+            branch_id: branchId,
+            deployment_strategy: {
+              type: "percentage",
+              traffic_percentage: 1
+            }
+          }
+        ]
+      }
+    })
+  });
+}
+
+export async function publishAgent(apiKey, agentId) {
+  const branches = await listAgentBranches(apiKey, agentId);
+  const candidates = (branches.results || []).filter((branch) => !branch.is_archived);
+  const branch = candidates.find((item) => item.current_live_percentage === 100)
+    || candidates.find((item) => item.current_live_percentage === 1)
+    || candidates.sort((a, b) => (b.current_live_percentage || 0) - (a.current_live_percentage || 0))[0];
+  if (!branch?.id) {
+    throw new Error("No se encontro una rama disponible para publicar el agente.");
+  }
+  return createDeployment(apiKey, agentId, branch.id);
+}
