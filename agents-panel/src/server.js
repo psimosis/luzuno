@@ -51,7 +51,7 @@ function requireAdmin(req, res, next) {
 
 function targetUserId(req) {
   if (!hasAdminRole(req.session.user)) return req.session.user.sub;
-  return req.body.userId || req.query.userId || req.session.user.sub;
+  return req.body?.userId || req.query?.userId || req.session.user.sub;
 }
 
 function targetUserQuery(req, userId) {
