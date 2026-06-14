@@ -273,17 +273,15 @@ h2 { margin: 0 0 16px; font-size: 18px; }
 .agent-editor-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-areas:
-    "data photo"
-    "prompt notes";
   align-items: start;
   gap: 16px;
   margin-bottom: 16px;
 }
-.quadrant-data { grid-area: data; }
-.quadrant-photo { grid-area: photo; }
-.quadrant-prompt { grid-area: prompt; }
-.quadrant-notes { grid-area: notes; }
+.editor-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
 .quadrant-prompt {
   min-height: 520px;
 }
@@ -367,6 +365,7 @@ td span { display: block; color: var(--muted-dark); font-size: 13px; margin-top:
   nav { flex-wrap: wrap; }
   main { padding: 18px; }
   .page-head, .split, .agent-editor-grid { display: block; }
+  .editor-column { display: block; }
   .page-head .secondary { margin-top: 14px; }
   .inline-form, .inline-form input { width: 100%; }
 }
