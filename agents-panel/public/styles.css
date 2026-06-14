@@ -273,7 +273,7 @@ h2 { margin: 0 0 16px; font-size: 18px; }
 .agent-editor-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
+  align-items: stretch;
   gap: 16px;
   margin-bottom: 16px;
 }
@@ -281,8 +281,10 @@ h2 { margin: 0 0 16px; font-size: 18px; }
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-height: 100%;
 }
 .quadrant-prompt {
+  flex: 1;
   min-height: 520px;
 }
 .quadrant-prompt .prompt-editor {
