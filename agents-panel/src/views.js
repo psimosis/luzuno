@@ -27,7 +27,10 @@ export function layout(req, title, body) {
 </head>
 <body>
   <div class="generation-overlay" id="generationOverlay">
-    <div class="generation-card">Generacion de Imagen en Proceso</div>
+    <div class="generation-card">
+      <img src="/logo-luzuno.png" alt="Luzuno">
+      <span>Generacion de Imagen en Proceso</span>
+    </div>
   </div>
   <header class="topbar">
     <a class="brand" href="/dashboard"><img src="/logo-luzuno.png" alt="Luzuno"><span>Panel de Control</span></a>
@@ -78,6 +81,12 @@ function profileImageMarkup(path, className = "agent-avatar") {
     : `<div class="${className} avatar-placeholder" aria-label="Sin foto de perfil"></div>`;
 }
 
+function imageStyleOptions(selected = "Corporativa") {
+  return ["Corporativa", "Medicina", "Informal", "Industrial"]
+    .map((style) => `<option value="${esc(style)}" ${style === selected ? "selected" : ""}>${esc(style)}</option>`)
+    .join("");
+}
+
 export function dashboard(req, agents, settings, agentSettings = [], error = "") {
   const imagesByAgent = new Map(agentSettings.map((item) => [item.agent_id, item.profile_image_path]));
   const cards = agents.map((agent) => `
@@ -122,7 +131,7 @@ export function agentDetail(req, agent, local, message = "", error = "") {
     </section>
     ${message ? `<div class="notice">${esc(message)}</div>` : ""}
     ${error ? `<div class="alert">${esc(error)}</div>` : ""}
-    <section class="split">
+    <section class="agent-editor-grid">
       <article class="panel">
         <h2>Datos principales</h2>
         <dl class="details">
@@ -132,29 +141,29 @@ export function agentDetail(req, agent, local, message = "", error = "") {
           <dt>Tags</dt><dd>${(agent.tags || []).map((tag) => `<span class="tag">${esc(tag)}</span>`).join("") || "-"}</dd>
         </dl>
       </article>
-      <div class="side-stack">
-        <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/profile-image" data-generation-form>
-          <h2>Foto de Perfil</h2>
-          <div class="profile-preview">${profileImageMarkup(local.profile_image_path, "profile-image")}</div>
-          <label>Instrucciones de generacion</label>
-          <textarea name="imagePrompt" rows="4" placeholder="Ej: perfil corporativo futurista, tonos azules, aspecto profesional">${esc(local.profile_image_prompt || "")}</textarea>
-          <button class="primary" type="submit">Generar Imagen de Perfil</button>
-        </form>
-        <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/local">
-          <h2>Notas locales</h2>
-          <label>Nombre interno</label>
-          <input name="display_name" value="${esc(local.display_name || "")}">
-          <label>Notas</label>
-          <textarea name="notes" rows="8">${esc(local.notes || "")}</textarea>
-          <button class="secondary" type="submit">Guardar notas</button>
-        </form>
-      </div>
+      <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/profile-image" data-generation-form>
+        <h2>Foto de Perfil</h2>
+        <div class="profile-preview">${profileImageMarkup(local.profile_image_path, "profile-image")}</div>
+        <label>Estilo de la foto</label>
+        <select name="imageStyle">${imageStyleOptions(local.profile_image_style || "Corporativa")}</select>
+        <label>Caracteristicas de la Persona</label>
+        <textarea name="imagePrompt" rows="4" placeholder="Ej: mujer ejecutiva de 35 anos, cabello oscuro, expresion amable">${esc(local.profile_image_prompt || "")}</textarea>
+        <button class="primary" type="submit">Generar Imagen de Perfil</button>
+      </form>
+      <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/local">
+        <h2>Notas locales</h2>
+        <label>Nombre interno</label>
+        <input name="display_name" value="${esc(local.display_name || "")}">
+        <label>Notas</label>
+        <textarea name="notes" rows="8">${esc(local.notes || "")}</textarea>
+        <button class="secondary" type="submit">Guardar notas</button>
+      </form>
+      <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/prompt">
+        <h2>Instrucciones del Anub</h2>
+        <textarea class="code prompt-editor" name="systemPrompt" rows="12">${esc(systemPrompt)}</textarea>
+        <button class="primary" type="submit">Guardar Configuracion</button>
+      </form>
     </section>
-    <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/prompt">
-      <h2>Instrucciones del Anub</h2>
-      <textarea class="code" name="systemPrompt" rows="16">${esc(systemPrompt)}</textarea>
-      <button class="primary" type="submit">Guardar Configuracion</button>
-    </form>
   `);
 }
 

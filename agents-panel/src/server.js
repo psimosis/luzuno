@@ -52,7 +52,17 @@ function systemPromptPatch(systemPrompt) {
   };
 }
 
-function profileImagePrompt(agent, instructions) {
+function profileStylePrompt(style) {
+  const styles = {
+    Corporativa: "Corporate executive portrait: business attire, polished office lighting, confident and approachable expression, neutral technology office background.",
+    Medicina: "Healthcare professional portrait: clean medical or clinical environment, white coat or healthcare attire, calm trustworthy expression, bright sanitary lighting.",
+    Informal: "Informal professional portrait: smart casual clothing, relaxed approachable expression, warm modern workspace background, still realistic and business appropriate.",
+    Industrial: "Industrial professional portrait: engineering or operations environment, safety-conscious industrial attire when appropriate, factory or technical facility background."
+  };
+  return styles[style] || styles.Corporativa;
+}
+
+function profileImagePrompt(agent, instructions, style) {
   const name = agent.name || agent.agent_id;
   const requestedDescription = `Generar imagen de una persona humana ficticia corporativa con apariencia realista y la siguiente descripcion: ${instructions}`;
   return [
@@ -61,6 +71,7 @@ function profileImagePrompt(agent, instructions) {
     "Use photorealistic lighting, realistic skin texture, realistic facial proportions, business attire, and a neutral modern office or technology background.",
     "Do not generate cartoon, caricature, anime, illustration, 3D render, mascot, plastic-looking avatar, fantasy character, painted style, readable text, watermarks, UI mockups, or brand logos.",
     "Style: premium corporate photography, modern artificial intelligence company aesthetic, suitable for a business control panel profile image.",
+    `Selected photo style: ${style}. ${profileStylePrompt(style)}`,
     requestedDescription
   ].join("\n");
 }
@@ -173,8 +184,11 @@ app.post("/agents/:agentId/profile-image", requireAuth, async (req, res, next) =
     if (!apiKey) return res.status(403).send("Cuenta nueva, aguarde a que un administrador de Luzuno configure su cuenta.");
     const instructions = String(req.body.imagePrompt || "").trim();
     if (!instructions) return res.status(400).send("Ingresa instrucciones para generar la imagen de perfil.");
+    const imageStyle = ["Corporativa", "Medicina", "Informal", "Industrial"].includes(req.body.imageStyle)
+      ? req.body.imageStyle
+      : "Corporativa";
     const agent = await getAgent(apiKey, req.params.agentId);
-    const prompt = profileImagePrompt(agent, instructions);
+    const prompt = profileImagePrompt(agent, instructions, imageStyle);
     const imageBuffer = await generateProfileImage(prompt);
     await fs.mkdir(imageDir, { recursive: true });
     const filename = `${req.session.user.sub.replace(/[^a-zA-Z0-9_-]/g, "_")}-${req.params.agentId.replace(/[^a-zA-Z0-9_-]/g, "_")}.png`;
@@ -187,7 +201,7 @@ app.post("/agents/:agentId/profile-image", requireAuth, async (req, res, next) =
       });
     }
     await fs.writeFile(imagePath, imageBuffer);
-    await saveAgentProfileImage(req.session.user.sub, req.params.agentId, `/agent-images/${filename}?v=${Date.now()}`, instructions);
+    await saveAgentProfileImage(req.session.user.sub, req.params.agentId, `/agent-images/${filename}?v=${Date.now()}`, instructions, imageStyle);
     res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}?image=1`);
   } catch (error) {
     next(error);

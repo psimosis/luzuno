@@ -91,6 +91,14 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px; position: relative; z-i
   font-size: 20px;
   font-weight: 800;
   text-align: center;
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+}
+.generation-card img {
+  width: 96px;
+  height: auto;
+  display: block;
 }
 
 .login-body {
@@ -262,10 +270,20 @@ h2 { margin: 0 0 16px; font-size: 18px; }
   display: flex;
   flex-direction: column;
 }
+.agent-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.agent-editor-grid .panel {
+  min-height: 100%;
+}
 .panel { padding: 18px; margin-bottom: 16px; }
 .form { display: flex; flex-direction: column; gap: 10px; }
 label { font-size: 13px; color: var(--muted-dark); font-weight: 700; }
-input, textarea {
+input, textarea, select {
   width: 100%;
   border: 1px solid #d6e1ef;
   border-radius: 6px;
@@ -274,13 +292,27 @@ input, textarea {
   background: #fff;
   color: var(--dark-text);
 }
-input:focus, textarea:focus {
+select {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #075985 50%),
+    linear-gradient(135deg, #075985 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) 52%,
+    calc(100% - 12px) 52%;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+}
+input:focus, textarea:focus, select:focus {
   outline: 3px solid rgba(89, 199, 255, 0.22);
   border-color: var(--accent);
 }
 .code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px;
+}
+.prompt-editor {
+  min-height: 310px;
 }
 button, .primary, .secondary, .danger {
   border: 0;
@@ -317,7 +349,7 @@ td span { display: block; color: var(--muted-dark); font-size: 13px; margin-top:
   .brand img { width: 76px; }
   nav { flex-wrap: wrap; }
   main { padding: 18px; }
-  .page-head, .split { display: block; }
+  .page-head, .split, .agent-editor-grid { display: block; }
   .page-head .secondary { margin-top: 14px; }
   .inline-form, .inline-form input { width: 100%; }
 }
