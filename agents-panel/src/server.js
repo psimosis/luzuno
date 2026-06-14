@@ -54,11 +54,12 @@ function systemPromptPatch(systemPrompt) {
 
 function profileImagePrompt(agent, instructions) {
   const name = agent.name || agent.agent_id;
+  const requestedDescription = `Generar imagen de un ser humano ficticio corporativo con la siguiente descripcion: ${instructions}`;
   return [
     `Generate a square corporate profile image for an AI agent named "${name}".`,
     "Style: professional, modern artificial intelligence, clean Luzuno-style technology aesthetic, suitable for a business control panel avatar.",
     "Avoid readable text, watermarks, UI mockups, brand logos, and photorealistic depictions of a real identifiable person.",
-    `Specific instructions from the user: ${instructions}`
+    requestedDescription
   ].join("\n");
 }
 
@@ -174,10 +175,17 @@ app.post("/agents/:agentId/profile-image", requireAuth, async (req, res, next) =
     const prompt = profileImagePrompt(agent, instructions);
     const imageBuffer = await generateProfileImage(prompt);
     await fs.mkdir(imageDir, { recursive: true });
-    const filename = `${req.session.user.sub.replace(/[^a-zA-Z0-9_-]/g, "_")}-${req.params.agentId.replace(/[^a-zA-Z0-9_-]/g, "_")}-${crypto.randomUUID()}.png`;
+    const filename = `${req.session.user.sub.replace(/[^a-zA-Z0-9_-]/g, "_")}-${req.params.agentId.replace(/[^a-zA-Z0-9_-]/g, "_")}.png`;
     const imagePath = path.join(imageDir, filename);
+    const local = await getAgentSettings(req.session.user.sub, req.params.agentId);
+    const previousPath = local.profile_image_path ? new URL(local.profile_image_path, publicUrl).pathname : "";
+    if (previousPath && previousPath.startsWith("/agent-images/") && path.basename(previousPath) !== filename) {
+      await fs.unlink(path.join(imageDir, path.basename(previousPath))).catch((error) => {
+        if (error.code !== "ENOENT") throw error;
+      });
+    }
     await fs.writeFile(imagePath, imageBuffer);
-    await saveAgentProfileImage(req.session.user.sub, req.params.agentId, `/agent-images/${filename}`, instructions);
+    await saveAgentProfileImage(req.session.user.sub, req.params.agentId, `/agent-images/${filename}?v=${Date.now()}`, instructions);
     res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}?image=1`);
   } catch (error) {
     next(error);

@@ -26,6 +26,9 @@ export function layout(req, title, body) {
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+  <div class="generation-overlay" id="generationOverlay">
+    <div class="generation-card">Generacion de Imagen en Proceso</div>
+  </div>
   <header class="topbar">
     <a class="brand" href="/dashboard"><img src="/logo-luzuno.png" alt="Luzuno"><span>Panel de Control</span></a>
     <nav>
@@ -33,6 +36,13 @@ export function layout(req, title, body) {
     </nav>
   </header>
   <main>${body}</main>
+  <script>
+    document.querySelectorAll("[data-generation-form]").forEach((form) => {
+      form.addEventListener("submit", () => {
+        document.getElementById("generationOverlay")?.classList.add("is-visible");
+      });
+    });
+  </script>
 </body>
 </html>`;
 }
@@ -123,7 +133,7 @@ export function agentDetail(req, agent, local, message = "", error = "") {
         </dl>
       </article>
       <div class="side-stack">
-        <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/profile-image">
+        <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/profile-image" data-generation-form>
           <h2>Foto de Perfil</h2>
           <div class="profile-preview">${profileImageMarkup(local.profile_image_path, "profile-image")}</div>
           <label>Instrucciones de generacion</label>
