@@ -9,6 +9,7 @@ import { migrate, upsertUserProfile, getUserSettings, getApiKey, setApiKeyForUse
 import { listAgents, getAgent, updateAgent, publishAgent } from "./elevenlabs.js";
 import { generateProfileImage } from "./openai-images.js";
 import { adminPage, agentDetail, dashboard, loginPage } from "./views.js";
+import { supportPage } from "./views.js";
 import { authUrl, hasAdminRole, internalIssuer, listUsers, createUser, deleteUser, resetPassword, setUserAdmin, tokenUrl, logoutUrl, oidcIssuer } from "./keycloak.js";
 
 const app = express();
@@ -29,6 +30,7 @@ const upload = multer({
 
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 app.use(express.json({ limit: "2mb" }));
+app.use("/vendor/anam-sdk", express.static("node_modules/@anam-ai/js-sdk/dist/module", { extensions: ["js"] }));
 app.use(express.static("public"));
 app.use("/agent-images", express.static(imageDir));
 app.use(session({
@@ -58,6 +60,30 @@ function targetUserQuery(req, userId) {
   return hasAdminRole(req.session.user) && userId !== req.session.user.sub
     ? `?userId=${encodeURIComponent(userId)}`
     : "";
+}
+
+function supportPresets() {
+  return [1, 2, 3]
+    .map((index) => ({
+      label: process.env[`SUPPORT_PERSONA_${index}_NAME`] || process.env[`PERSONA_${index}_NAME`] || `Soporte ${index}`,
+      avatarId: process.env[`SUPPORT_PERSONA_${index}_AVATAR_ID`] || process.env[`PERSONA_${index}_AVATAR_ID`] || "",
+      agentId: process.env[`SUPPORT_PERSONA_${index}_AGENT_ID`] || process.env[`PERSONA_${index}_AGENT_ID`] || "",
+      previewImage: index === 1 ? "/support-avatar-preview.png" : "/support-avatar-preview.png"
+    }))
+    .filter((preset) => preset.avatarId && preset.agentId);
+}
+
+function publicSupportPresets() {
+  return supportPresets().map((preset) => ({
+    label: preset.label,
+    avatarId: preset.avatarId,
+    agentId: preset.agentId,
+    previewImage: preset.previewImage
+  }));
+}
+
+function findSupportPreset(avatarId, agentId) {
+  return supportPresets().find((preset) => preset.avatarId === avatarId && preset.agentId === agentId);
 }
 
 function systemPromptPatch(systemPrompt) {
@@ -215,6 +241,60 @@ app.get("/dashboard", requireAuth, async (req, res) => {
 app.get("/settings", requireAuth, (_req, res) => res.redirect("/dashboard"));
 app.post("/settings/api-key", requireAuth, (_req, res) => res.status(403).send("Las API keys solo pueden ser configuradas por un Administrador."));
 
+app.get("/support", requireAuth, async (req, res, next) => {
+  try {
+    const userId = targetUserId(req);
+    const adminUsers = hasAdminRole(req.session.user) ? await listUsers() : [];
+    res.send(supportPage(req, publicSupportPresets(), adminUsers, userId, process.env.ANAM_PUBLIC_API_URL || process.env.NEXT_PUBLIC_ANAM_API_URL || process.env.ANAM_API_URL || ""));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/anam-session", requireAuth, async (req, res, next) => {
+  try {
+    const anamApiKey = process.env.ANAM_API_KEY;
+    if (!anamApiKey) return res.status(500).json({ error: "ANAM_API_KEY no esta configurada." });
+    const elevenLabsApiKey = process.env.SUPPORT_ELEVENLABS_API_KEY || process.env.ELEVENLABS_API_KEY;
+    if (!elevenLabsApiKey) return res.status(500).json({ error: "SUPPORT_ELEVENLABS_API_KEY no esta configurada." });
+
+    const { avatarId, agentId } = req.body || {};
+    if (!avatarId || !agentId) return res.status(400).json({ error: "avatarId y agentId son requeridos." });
+    if (!findSupportPreset(avatarId, agentId)) return res.status(403).json({ error: "Persona de soporte no autorizada." });
+
+    const signedUrlRes = await fetch(
+      `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${encodeURIComponent(agentId)}`,
+      { headers: { "xi-api-key": elevenLabsApiKey } }
+    );
+    if (!signedUrlRes.ok) {
+      return res.status(signedUrlRes.status).json({ error: `ElevenLabs API error: ${signedUrlRes.status} ${await signedUrlRes.text()}` });
+    }
+    const { signed_url: signedUrl } = await signedUrlRes.json();
+    const anamApiUrl = process.env.ANAM_API_URL || "https://api.anam.ai";
+    const sessionTokenRes = await fetch(`${anamApiUrl}/v1/auth/session-token`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${anamApiKey}`
+      },
+      body: JSON.stringify({
+        personaConfig: { avatarId },
+        environment: {
+          elevenLabsAgentSettings: { signedUrl, agentId },
+          ...(process.env.ANAM_POD_NAME ? { podName: process.env.ANAM_POD_NAME } : {})
+        }
+      })
+    });
+    if (!sessionTokenRes.ok) {
+      return res.status(sessionTokenRes.status).json({ error: `Anam API error: ${sessionTokenRes.status} ${await sessionTokenRes.text()}` });
+    }
+    const data = await sessionTokenRes.json();
+    res.json({ sessionToken: data.sessionToken });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/agents/:agentId", requireAuth, async (req, res, next) => {
   try {
     const userId = targetUserId(req);
@@ -222,8 +302,9 @@ app.get("/agents/:agentId", requireAuth, async (req, res, next) => {
     if (!apiKey) return res.redirect("/dashboard");
     const agent = await getAgent(apiKey, req.params.agentId);
     const local = await getAgentSettings(userId, req.params.agentId);
+    const adminUsers = hasAdminRole(req.session.user) ? await listUsers() : [];
     const message = req.query.saved ? "Configuracion guardada y publicada." : req.query.image ? "Foto de perfil generada." : "";
-    res.send(agentDetail(req, agent, local, message, "", userId));
+    res.send(agentDetail(req, agent, local, message, "", userId, adminUsers));
   } catch (error) {
     next(error);
   }

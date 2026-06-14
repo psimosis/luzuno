@@ -8,6 +8,10 @@ function esc(value) {
     .replaceAll('"', "&quot;");
 }
 
+function scriptJson(value) {
+  return JSON.stringify(value).replaceAll("<", "\\u003c");
+}
+
 function currentSystemPrompt(agent) {
   const prompt = agent.conversation_config?.agent?.prompt;
   if (typeof prompt === "string") return prompt;
@@ -24,6 +28,7 @@ function headerTenantSelector(req, adminUsers = [], selectedUserId = "") {
 export function layout(req, title, body, options = {}) {
   const user = req.session.user;
   const admin = hasAdminRole(user);
+  const selectedQuery = options.selectedUserId ? userQuery(req, options.selectedUserId) : "";
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -40,9 +45,9 @@ export function layout(req, title, body, options = {}) {
     </div>
   </div>
   <header class="topbar">
-    <a class="brand" href="/dashboard"><img src="/logo-luzuno.png" alt="Luzuno"><span>Panel de Control</span></a>
+    <a class="brand" href="/dashboard${selectedQuery}"><img src="/logo-luzuno.png" alt="Luzuno"><span>Panel de Control</span></a>
     <nav>
-      ${user ? `<a href="/dashboard">Dashboard</a>${headerTenantSelector(req, options.adminUsers, options.selectedUserId)}${admin ? `<a href="/admin">Administracion</a>` : ""}<a href="/logout">Salir</a>` : ""}
+      ${user ? `${headerTenantSelector(req, options.adminUsers, options.selectedUserId)}<a href="/dashboard${selectedQuery}">Dashboard</a>${admin ? `<a href="/admin">Administracion</a>` : ""}<a href="/support${selectedQuery}">Soporte Tecnico</a><a href="/logout">Salir</a>` : ""}
     </nav>
   </header>
   <main>${body}</main>
@@ -144,7 +149,7 @@ export function dashboard(req, agents, settings, agentSettings = [], error = "",
   `, { adminUsers, selectedUserId });
 }
 
-export function agentDetail(req, agent, local, message = "", error = "", selectedUserId = "") {
+export function agentDetail(req, agent, local, message = "", error = "", selectedUserId = "", adminUsers = []) {
   const systemPrompt = local.system_prompt || currentSystemPrompt(agent);
   const query = userQuery(req, selectedUserId);
   const hiddenUser = hiddenUserInput(req, selectedUserId);
@@ -207,7 +212,45 @@ export function agentDetail(req, agent, local, message = "", error = "", selecte
         </form>
       </div>
     </section>
-  `);
+  `, { adminUsers, selectedUserId });
+}
+
+export function supportPage(req, presets, adminUsers = [], selectedUserId = "", anamApiUrl = "") {
+  const config = {
+    presets,
+    anamApiUrl
+  };
+  return layout(req, "Soporte Tecnico", `
+    <section class="page-head">
+      <div>
+        <p class="eyebrow">Soporte Tecnico</p>
+        <h1>Comunicacion con soporte</h1>
+      </div>
+    </section>
+    <section class="support-shell">
+      <article class="support-video-panel">
+        <div class="support-video-wrap">
+          <video id="support-avatar-video" autoplay playsinline></video>
+          <img id="support-avatar-preview" class="support-preview-image" src="${esc(presets[0]?.previewImage || "/support-avatar-preview.png")}" alt="Soporte Tecnico">
+          <div id="support-connecting" class="support-connecting">Conectando...</div>
+        </div>
+        <div class="support-controls">
+          <button id="support-prev" class="support-round-button" type="button" aria-label="Anterior">‹</button>
+          <button id="support-start" class="primary" type="button">Iniciar comunicacion</button>
+          <button id="support-stop" class="danger" type="button">Finalizar</button>
+          <button id="support-next" class="support-round-button" type="button" aria-label="Siguiente">›</button>
+        </div>
+        <div id="support-personas" class="support-personas"></div>
+      </article>
+      <article class="panel support-chat-panel">
+        <h2>Chat</h2>
+        <div id="support-transcript" class="support-transcript"></div>
+        <div id="support-error" class="alert support-error"></div>
+      </article>
+    </section>
+    <script id="support-config" type="application/json">${scriptJson(config)}</script>
+    <script type="module" src="/support.js"></script>
+  `, { adminUsers, selectedUserId });
 }
 
 export function adminPage(req, users, localUsers, message = "", error = "") {
@@ -240,7 +283,7 @@ export function adminPage(req, users, localUsers, message = "", error = "") {
       <h2>Api Keys</h2>
       <table><thead><tr><th>Cliente</th><th>API key</th><th>Actualizar</th></tr></thead><tbody>${apiKeyRows(users, localById)}</tbody></table>
     </section>
-  `);
+  `, { adminUsers: users, selectedUserId: req.query.userId || req.session.user.sub });
 }
 
 function userRows(users) {

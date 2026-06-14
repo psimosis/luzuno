@@ -8,6 +8,7 @@
     "check": "node --check src/server.js"
   },
   "dependencies": {
+    "@anam-ai/js-sdk": "^4.15.0",
     "express": "^5.1.0",
     "express-session": "^1.18.2",
     "jose": "^6.1.3",
