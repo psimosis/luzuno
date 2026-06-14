@@ -162,7 +162,7 @@ export function agentDetail(req, agent, local, message = "", error = "") {
           <form class="form compact-form upload-form" method="post" action="/agents/${esc(agent.agent_id)}/profile-image/upload" enctype="multipart/form-data">
             <label>Subir una foto desde su PC</label>
             <input name="profileImage" type="file" accept="image/png,image/jpeg,image/webp" required>
-            <button class="secondary" type="submit">Subir una Imagen</button>
+            <button class="primary" type="submit">Subir una Imagen</button>
           </form>
         </article>
         <form class="panel form quadrant-notes" method="post" action="/agents/${esc(agent.agent_id)}/local">
@@ -171,7 +171,7 @@ export function agentDetail(req, agent, local, message = "", error = "") {
           <input name="display_name" value="${esc(local.display_name || "")}">
           <label>Notas</label>
           <textarea name="notes" rows="8">${esc(local.notes || "")}</textarea>
-          <button class="secondary" type="submit">Guardar notas</button>
+          <button class="primary" type="submit">Guardar notas</button>
         </form>
       </div>
     </section>
