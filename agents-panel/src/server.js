@@ -54,11 +54,13 @@ function systemPromptPatch(systemPrompt) {
 
 function profileImagePrompt(agent, instructions) {
   const name = agent.name || agent.agent_id;
-  const requestedDescription = `Generar imagen de un ser humano ficticio corporativo con la siguiente descripcion: ${instructions}`;
+  const requestedDescription = `Generar imagen de una persona humana ficticia corporativa con apariencia realista y la siguiente descripcion: ${instructions}`;
   return [
-    `Generate a square corporate profile image for an AI agent named "${name}".`,
-    "Style: professional, modern artificial intelligence, clean Luzuno-style technology aesthetic, suitable for a business control panel avatar.",
-    "Avoid readable text, watermarks, UI mockups, brand logos, and photorealistic depictions of a real identifiable person.",
+    `Generate a square corporate profile photo for an AI agent named "${name}".`,
+    "The subject must look like a real human being in a professional corporate headshot, but must be completely fictional and not resemble any real identifiable person.",
+    "Use photorealistic lighting, realistic skin texture, realistic facial proportions, business attire, and a neutral modern office or technology background.",
+    "Do not generate cartoon, caricature, anime, illustration, 3D render, mascot, plastic-looking avatar, fantasy character, painted style, readable text, watermarks, UI mockups, or brand logos.",
+    "Style: premium corporate photography, modern artificial intelligence company aesthetic, suitable for a business control panel profile image.",
     requestedDescription
   ].join("\n");
 }
