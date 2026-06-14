@@ -87,10 +87,29 @@ function imageStyleOptions(selected = "Corporativa") {
     .join("");
 }
 
-export function dashboard(req, agents, settings, agentSettings = [], error = "") {
+function adminUserOptions(users, selectedUserId) {
+  return users
+    .map((user) => `<option value="${esc(user.id)}" ${user.id === selectedUserId ? "selected" : ""}>${esc(user.username || user.email || user.id)}</option>`)
+    .join("");
+}
+
+function userQuery(req, selectedUserId) {
+  return hasAdminRole(req.session.user) && selectedUserId && selectedUserId !== req.session.user.sub
+    ? `?userId=${encodeURIComponent(selectedUserId)}`
+    : "";
+}
+
+function hiddenUserInput(req, selectedUserId) {
+  return hasAdminRole(req.session.user) && selectedUserId
+    ? `<input type="hidden" name="userId" value="${esc(selectedUserId)}">`
+    : "";
+}
+
+export function dashboard(req, agents, settings, agentSettings = [], error = "", adminUsers = [], selectedUserId = "") {
   const imagesByAgent = new Map(agentSettings.map((item) => [item.agent_id, item.profile_image_path]));
+  const query = userQuery(req, selectedUserId);
   const cards = agents.map((agent) => `
-    <a class="agent-card" href="/agents/${esc(agent.agent_id)}">
+    <a class="agent-card" href="/agents/${esc(agent.agent_id)}${query}">
       <div class="agent-card-header">
         <h2>${esc(agent.name || "Sin nombre")}</h2>
         <div class="agent-card-side">
@@ -107,9 +126,14 @@ export function dashboard(req, agents, settings, agentSettings = [], error = "")
     </a>`).join("");
   return layout(req, "Dashboard", `
     <section class="page-head">
-      <div>
-        <p class="eyebrow">Dashboard</p>
-        <h1>Anubs Disponibles</h1>
+      <div class="dashboard-title-row">
+        ${hasAdminRole(req.session.user) ? `<form class="tenant-selector" method="get" action="/dashboard">
+          <select name="userId" onchange="this.form.submit()">${adminUserOptions(adminUsers, selectedUserId)}</select>
+        </form>` : ""}
+        <div>
+          <p class="eyebrow">Dashboard</p>
+          <h1>Anubs Disponibles</h1>
+        </div>
       </div>
     </section>
     ${error ? `<div class="alert">${esc(error)}</div>` : ""}
@@ -118,8 +142,10 @@ export function dashboard(req, agents, settings, agentSettings = [], error = "")
   `);
 }
 
-export function agentDetail(req, agent, local, message = "", error = "") {
+export function agentDetail(req, agent, local, message = "", error = "", selectedUserId = "") {
   const systemPrompt = local.system_prompt || currentSystemPrompt(agent);
+  const query = userQuery(req, selectedUserId);
+  const hiddenUser = hiddenUserInput(req, selectedUserId);
   return layout(req, agent.name || "Agente", `
     <section class="page-head">
       <div>
@@ -127,7 +153,7 @@ export function agentDetail(req, agent, local, message = "", error = "") {
         <h1>${esc(agent.name || agent.agent_id)}</h1>
         <p class="meta">${esc(agent.agent_id)}</p>
       </div>
-      <a class="secondary" href="/dashboard">Volver</a>
+      <a class="secondary" href="/dashboard${query}">Volver</a>
     </section>
     ${message ? `<div class="notice">${esc(message)}</div>` : ""}
     ${error ? `<div class="alert">${esc(error)}</div>` : ""}
@@ -143,6 +169,7 @@ export function agentDetail(req, agent, local, message = "", error = "") {
           </dl>
         </article>
         <form class="panel form quadrant-prompt" method="post" action="/agents/${esc(agent.agent_id)}/prompt">
+          ${hiddenUser}
           <h2>Instrucciones de Comportamiento</h2>
           <textarea class="code prompt-editor" name="systemPrompt" rows="12">${esc(systemPrompt)}</textarea>
           <button class="primary" type="submit">Guardar Configuracion</button>
@@ -152,6 +179,7 @@ export function agentDetail(req, agent, local, message = "", error = "") {
         <article class="panel form quadrant-photo">
           <h2>Foto de Perfil</h2>
           <form class="form compact-form" method="post" action="/agents/${esc(agent.agent_id)}/profile-image" data-generation-form>
+            ${hiddenUser}
             <div class="profile-preview">${profileImageMarkup(local.profile_image_path, "profile-image")}</div>
             <label>Estilo de la foto</label>
             <select name="imageStyle">${imageStyleOptions(local.profile_image_style || "Corporativa")}</select>
@@ -160,12 +188,14 @@ export function agentDetail(req, agent, local, message = "", error = "") {
             <button class="primary" type="submit">Generar Imagen de Perfil</button>
           </form>
           <form class="form compact-form upload-form" method="post" action="/agents/${esc(agent.agent_id)}/profile-image/upload" enctype="multipart/form-data">
+            ${hiddenUser}
             <label>Subir una foto desde su PC</label>
             <input name="profileImage" type="file" accept="image/png,image/jpeg,image/webp" required>
             <button class="primary" type="submit">Subir una Imagen</button>
           </form>
         </article>
         <form class="panel form quadrant-notes" method="post" action="/agents/${esc(agent.agent_id)}/local">
+          ${hiddenUser}
           <h2>Notas locales</h2>
           <label>Nombre interno</label>
           <input name="display_name" value="${esc(local.display_name || "")}">

@@ -153,6 +153,18 @@ h2 { margin: 0 0 16px; font-size: 18px; }
   margin-bottom: 22px;
 }
 .page-head h1 { color: #ffffff; }
+.dashboard-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.tenant-selector {
+  margin: 2px 0 0;
+}
+.tenant-selector select {
+  min-width: 220px;
+  background-color: rgba(255, 255, 255, 0.96);
+}
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -366,7 +378,8 @@ td span { display: block; color: var(--muted-dark); font-size: 13px; margin-top:
   .brand img { width: 76px; }
   nav { flex-wrap: wrap; }
   main { padding: 18px; }
-  .page-head, .split, .agent-editor-grid { display: block; }
+  .page-head, .split, .agent-editor-grid, .dashboard-title-row { display: block; }
+  .tenant-selector { margin-bottom: 14px; }
   .editor-column { display: block; }
   .page-head .secondary { margin-top: 14px; }
   .inline-form, .inline-form input { width: 100%; }

@@ -49,6 +49,17 @@ function requireAdmin(req, res, next) {
   return next();
 }
 
+function targetUserId(req) {
+  if (!hasAdminRole(req.session.user)) return req.session.user.sub;
+  return req.body.userId || req.query.userId || req.session.user.sub;
+}
+
+function targetUserQuery(req, userId) {
+  return hasAdminRole(req.session.user) && userId !== req.session.user.sub
+    ? `?userId=${encodeURIComponent(userId)}`
+    : "";
+}
+
 function systemPromptPatch(systemPrompt) {
   return {
     conversation_config: {
@@ -183,11 +194,13 @@ app.get("/logout", (req, res) => {
 });
 
 app.get("/dashboard", requireAuth, async (req, res) => {
-  const settings = await getUserSettings(req.session.user.sub);
-  const agentSettings = await listAgentSettingsForUser(req.session.user.sub);
+  const userId = targetUserId(req);
+  const adminUsers = hasAdminRole(req.session.user) ? await listUsers() : [];
+  const settings = await getUserSettings(userId);
+  const agentSettings = await listAgentSettingsForUser(userId);
   let agents = [];
   let error = "";
-  const apiKey = await getApiKey(req.session.user.sub);
+  const apiKey = await getApiKey(userId);
   if (apiKey) {
     try {
       const data = await listAgents(apiKey, { search: req.query.search });
@@ -196,7 +209,7 @@ app.get("/dashboard", requireAuth, async (req, res) => {
       error = err.message;
     }
   }
-  res.send(dashboard(req, agents, settings, agentSettings, error));
+  res.send(dashboard(req, agents, settings, agentSettings, error, adminUsers, userId));
 });
 
 app.get("/settings", requireAuth, (_req, res) => res.redirect("/dashboard"));
@@ -204,12 +217,13 @@ app.post("/settings/api-key", requireAuth, (_req, res) => res.status(403).send("
 
 app.get("/agents/:agentId", requireAuth, async (req, res, next) => {
   try {
-    const apiKey = await getApiKey(req.session.user.sub);
+    const userId = targetUserId(req);
+    const apiKey = await getApiKey(userId);
     if (!apiKey) return res.redirect("/dashboard");
     const agent = await getAgent(apiKey, req.params.agentId);
-    const local = await getAgentSettings(req.session.user.sub, req.params.agentId);
+    const local = await getAgentSettings(userId, req.params.agentId);
     const message = req.query.saved ? "Configuracion guardada y publicada." : req.query.image ? "Foto de perfil generada." : "";
-    res.send(agentDetail(req, agent, local, message));
+    res.send(agentDetail(req, agent, local, message, "", userId));
   } catch (error) {
     next(error);
   }
@@ -217,7 +231,8 @@ app.get("/agents/:agentId", requireAuth, async (req, res, next) => {
 
 app.post("/agents/:agentId/profile-image", requireAuth, async (req, res, next) => {
   try {
-    const apiKey = await getApiKey(req.session.user.sub);
+    const userId = targetUserId(req);
+    const apiKey = await getApiKey(userId);
     if (!apiKey) return res.status(403).send("Cuenta nueva, aguarde a que un administrador de Luzuno configure su cuenta.");
     const instructions = String(req.body.imagePrompt || "").trim();
     if (!instructions) return res.status(400).send("Ingresa instrucciones para generar la imagen de perfil.");
@@ -227,8 +242,8 @@ app.post("/agents/:agentId/profile-image", requireAuth, async (req, res, next) =
     const agent = await getAgent(apiKey, req.params.agentId);
     const prompt = profileImagePrompt(agent, instructions, imageStyle);
     const imageBuffer = await generateProfileImage(prompt);
-    await replaceProfileImage(req.session.user.sub, req.params.agentId, imageBuffer, "png", instructions, imageStyle);
-    res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}?image=1`);
+    await replaceProfileImage(userId, req.params.agentId, imageBuffer, "png", instructions, imageStyle);
+    res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}${targetUserQuery(req, userId)}${targetUserQuery(req, userId) ? "&" : "?"}image=1`);
   } catch (error) {
     next(error);
   }
@@ -236,42 +251,45 @@ app.post("/agents/:agentId/profile-image", requireAuth, async (req, res, next) =
 
 app.post("/agents/:agentId/profile-image/upload", requireAuth, upload.single("profileImage"), async (req, res, next) => {
   try {
-    const apiKey = await getApiKey(req.session.user.sub);
+    const userId = targetUserId(req);
+    const apiKey = await getApiKey(userId);
     if (!apiKey) return res.status(403).send("Cuenta nueva, aguarde a que un administrador de Luzuno configure su cuenta.");
     if (!req.file) return res.status(400).send("Selecciona una imagen para subir.");
-    const local = await getAgentSettings(req.session.user.sub, req.params.agentId);
+    const local = await getAgentSettings(userId, req.params.agentId);
     const extension = profileImageExtension(req.file.mimetype);
     await replaceProfileImage(
-      req.session.user.sub,
+      userId,
       req.params.agentId,
       req.file.buffer,
       extension,
       local.profile_image_prompt || "",
       local.profile_image_style || "Corporativa"
     );
-    res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}?image=1`);
+    res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}${targetUserQuery(req, userId)}${targetUserQuery(req, userId) ? "&" : "?"}image=1`);
   } catch (error) {
     next(error);
   }
 });
 
 app.post("/agents/:agentId/local", requireAuth, async (req, res) => {
-  await saveAgentSettings(req.session.user.sub, req.params.agentId, {
+  const userId = targetUserId(req);
+  await saveAgentSettings(userId, req.params.agentId, {
     display_name: req.body.display_name,
     notes: req.body.notes,
     system_prompt: null,
     patch_template: null
   });
-  res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}`);
+  res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}${targetUserQuery(req, userId)}`);
 });
 
 app.post("/agents/:agentId/prompt", requireAuth, async (req, res, next) => {
   try {
-    const apiKey = await getApiKey(req.session.user.sub);
+    const userId = targetUserId(req);
+    const apiKey = await getApiKey(userId);
     if (!apiKey) return res.status(403).send("Cuenta nueva, aguarde a que un administrador de Luzuno configure su cuenta.");
     const systemPrompt = req.body.systemPrompt || "";
     const patch = systemPromptPatch(systemPrompt);
-    await saveAgentSettings(req.session.user.sub, req.params.agentId, {
+    await saveAgentSettings(userId, req.params.agentId, {
       display_name: null,
       notes: null,
       system_prompt: systemPrompt,
@@ -279,7 +297,7 @@ app.post("/agents/:agentId/prompt", requireAuth, async (req, res, next) => {
     });
     await updateAgent(apiKey, req.params.agentId, patch);
     await publishAgent(apiKey, req.params.agentId);
-    res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}?saved=1`);
+    res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}${targetUserQuery(req, userId)}${targetUserQuery(req, userId) ? "&" : "?"}saved=1`);
   } catch (error) {
     next(error);
   }
