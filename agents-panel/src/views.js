@@ -142,11 +142,11 @@ export function dashboard(req, agents, settings, agentSettings = [], error = "",
     return `
     <a class="agent-card profile-agent-card" href="/agents/${esc(agent.agent_id)}${query}">
       <div class="agent-card-media">
+        <div class="agent-card-title">
+          <h2>${esc(agent.name || "Sin nombre")}</h2>
+        </div>
         ${profileImageMarkup(local.profile_image_path, "agent-card-photo")}
         <span class="${agent.archived ? "pill inactive-pill" : "pill active-pill"}">${agent.archived ? "Inactivo" : "Activo"}</span>
-      </div>
-      <div class="agent-card-title">
-        <h2>${esc(agent.name || "Sin nombre")}</h2>
       </div>
       <div class="agent-grid persona-grid">
         ${cardLabel("R", "Rol")}<strong>${localValue(local.role_title)}</strong>
