@@ -460,16 +460,21 @@ h2 { margin: 0 0 16px; font-size: 18px; }
 }
 .persona-grid {
   grid-template-columns: 150px 1fr;
-  row-gap: 3px;
-  column-gap: 8px;
+  row-gap: 2px;
+  column-gap: 0;
   line-height: 1.25;
 }
 .persona-grid span {
   color: #08345f;
   font-weight: 800;
+  background: #b9daf0;
+  padding: 5px 8px;
 }
 .persona-grid strong {
+  min-height: 27px;
+  background: #e8f5ff;
   font-weight: 400;
+  padding: 5px 8px;
 }
 .agent-tags {
   margin: 2px 0 0;

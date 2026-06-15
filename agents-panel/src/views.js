@@ -132,7 +132,7 @@ function hiddenUserInput(req, selectedUserId) {
 export function dashboard(req, agents, settings, agentSettings = [], error = "", adminUsers = [], selectedUserId = "") {
   const settingsByAgent = new Map(agentSettings.map((item) => [item.agent_id, item]));
   const query = userQuery(req, selectedUserId);
-  const localValue = (value) => value ? esc(value) : "Sin Datos";
+  const localValue = (value) => value ? esc(value) : "";
   const cards = agents.map((agent) => {
     const local = settingsByAgent.get(agent.agent_id) || {};
     return `
