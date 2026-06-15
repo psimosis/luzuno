@@ -4,8 +4,11 @@ const presets = config.presets || [];
 let selectedIndex = 0;
 let client = null;
 let micStream = null;
+let speechRecognition = null;
+let speechShouldRun = false;
 let status = "idle";
 const messages = new Map();
+const speechInterimId = "local-speech-interim";
 
 const video = document.getElementById("support-avatar-video");
 const preview = document.getElementById("support-avatar-preview");
@@ -63,6 +66,10 @@ function renderMessages() {
   transcript.scrollTop = transcript.scrollHeight;
 }
 
+function recognitionFactory() {
+  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
 function renderPersonas() {
   personas.innerHTML = "";
   presets.forEach((preset, index) => {
@@ -83,6 +90,88 @@ function renderPersonas() {
 function releaseMicrophone() {
   micStream?.getTracks().forEach((track) => track.stop());
   micStream = null;
+}
+
+function stopSpeechTranscription() {
+  speechShouldRun = false;
+  if (speechRecognition) {
+    speechRecognition.onend = null;
+    speechRecognition.onerror = null;
+    speechRecognition.onresult = null;
+    try {
+      speechRecognition.stop();
+    } catch {}
+  }
+  speechRecognition = null;
+  messages.delete(speechInterimId);
+  renderMessages();
+}
+
+function startSpeechTranscription() {
+  const SpeechRecognition = recognitionFactory();
+  if (!SpeechRecognition) {
+    setError("El navegador no soporta transcripcion local de voz. Use Chrome o Edge para ver el texto del microfono.");
+    return;
+  }
+
+  stopSpeechTranscription();
+  speechShouldRun = true;
+  speechRecognition = new SpeechRecognition();
+  speechRecognition.lang = "es-AR";
+  speechRecognition.continuous = true;
+  speechRecognition.interimResults = true;
+  speechRecognition.maxAlternatives = 1;
+
+  speechRecognition.onresult = (event) => {
+    let interim = "";
+    for (let index = event.resultIndex; index < event.results.length; index += 1) {
+      const result = event.results[index];
+      const text = result[0]?.transcript || "";
+      if (!text.trim()) continue;
+
+      if (result.isFinal) {
+        messages.delete(speechInterimId);
+        const messageId = `local-speech-${Date.now()}-${index}`;
+        messages.set(messageId, {
+          id: messageId,
+          role: "user",
+          content: text.trim()
+        });
+      } else {
+        interim += text;
+      }
+    }
+
+    if (interim.trim()) {
+      messages.set(speechInterimId, {
+        id: speechInterimId,
+        role: "user",
+        content: interim.trim()
+      });
+    } else {
+      messages.delete(speechInterimId);
+    }
+    renderMessages();
+  };
+
+  speechRecognition.onerror = (event) => {
+    if (event.error === "no-speech" || event.error === "aborted") return;
+    setError(`No se pudo transcribir el microfono: ${event.error}`);
+  };
+
+  speechRecognition.onend = () => {
+    if (speechShouldRun && status === "connected") {
+      try {
+        speechRecognition.start();
+      } catch {}
+    }
+  };
+
+  try {
+    speechRecognition.start();
+  } catch (error) {
+    setError(error instanceof Error ? error.message : String(error));
+  }
 }
 
 async function requestMicrophone() {
@@ -133,25 +222,29 @@ async function start() {
     });
 
     client.addListener(AnamEvent.MESSAGE_STREAM_EVENT_RECEIVED, (event) => {
+      if (event.role === "user") return;
       const previous = messages.get(event.id);
       messages.set(event.id, {
         id: event.id,
-        role: event.role === "user" ? "user" : "persona",
+        role: "persona",
         content: `${previous?.content || ""}${event.content || ""}`
       });
       renderMessages();
     });
     client.addListener(AnamEvent.CONNECTION_CLOSED, () => {
       client = null;
+      stopSpeechTranscription();
       releaseMicrophone();
       setStatus("idle");
     });
 
     await client.streamToVideoElement("support-avatar-video", micStream);
     setStatus("connected");
+    startSpeechTranscription();
   } catch (error) {
     console.error(error);
     client = null;
+    stopSpeechTranscription();
     releaseMicrophone();
     setError(error instanceof Error ? error.message : String(error));
     setStatus("error");
@@ -163,6 +256,7 @@ async function stop() {
     await client?.stopStreaming();
   } catch {}
   client = null;
+  stopSpeechTranscription();
   releaseMicrophone();
   setStatus("idle");
 }
