@@ -120,7 +120,7 @@ export async function createDeployment(apiKey, agentId, branchId) {
             branch_id: branchId,
             deployment_strategy: {
               type: "percentage",
-              traffic_percentage: 1
+              traffic_percentage: 100
             }
           }
         ]
