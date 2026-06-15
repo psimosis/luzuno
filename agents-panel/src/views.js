@@ -144,7 +144,6 @@ export function dashboard(req, agents, settings, agentSettings = [], error = "",
           <span class="${agent.archived ? "pill inactive-pill" : "pill active-pill"}">${agent.archived ? "Inactivo" : "Activo"}</span>
         </div>
       </div>
-      <p>${(agent.tags || []).map((tag) => `<span class="tag">${esc(tag)}</span>`).join("")}</p>
       <div class="agent-grid persona-grid">
         <span>Rol</span><strong>${localValue(local.role_title)}</strong>
         <span>Area o Departamento</span><strong>${localValue(local.department)}</strong>
@@ -153,6 +152,7 @@ export function dashboard(req, agents, settings, agentSettings = [], error = "",
         <span>Pais</span><strong>${localValue(local.country)}</strong>
         <span>Sexo</span><strong>${localValue(local.gender)}</strong>
       </div>
+      <p class="agent-tags">${(agent.tags || []).map((tag) => `<span class="tag">${esc(tag)}</span>`).join("")}</p>
     </a>`;
   }).join("");
   return layout(req, "Dashboard", `

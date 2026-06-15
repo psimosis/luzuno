@@ -372,7 +372,7 @@ h2 { margin: 0 0 16px; font-size: 18px; }
   min-height: 210px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 .agent-card:hover {
   border-color: var(--accent);
@@ -460,10 +460,19 @@ h2 { margin: 0 0 16px; font-size: 18px; }
 }
 .persona-grid {
   grid-template-columns: 150px 1fr;
+  row-gap: 3px;
+  column-gap: 8px;
+  line-height: 1.25;
 }
 .persona-grid span {
   color: #08345f;
   font-weight: 800;
+}
+.persona-grid strong {
+  font-weight: 400;
+}
+.agent-tags {
+  margin: 2px 0 0;
 }
 .agent-grid strong, .details dd {
   color: var(--dark-text);
