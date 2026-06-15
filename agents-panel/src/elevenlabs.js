@@ -23,6 +23,22 @@ async function elevenFetch(apiKey, path, options = {}) {
   return body;
 }
 
+async function elevenAudioFetch(apiKey, path, options = {}) {
+  const res = await fetch(`${baseUrl}${path}`, {
+    ...options,
+    headers: {
+      "xi-api-key": apiKey,
+      "content-type": "application/json",
+      ...(options.headers || {})
+    }
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`ElevenLabs ${res.status}: ${text}`);
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+
 export async function listAgents(apiKey, query = {}) {
   const params = new URLSearchParams({
     page_size: query.page_size || "100",
@@ -42,6 +58,51 @@ export async function updateAgent(apiKey, agentId, patch) {
   return elevenFetch(apiKey, `/v1/convai/agents/${encodeURIComponent(agentId)}`, {
     method: "PATCH",
     body: JSON.stringify(patch)
+  });
+}
+
+export async function listVoices(apiKey) {
+  try {
+    const data = await elevenFetch(apiKey, "/v2/voices?page_size=100&include_total_count=true");
+    return data.voices || [];
+  } catch {
+    const data = await elevenFetch(apiKey, "/v1/voices");
+    return data.voices || [];
+  }
+}
+
+export function filterVoices(voices, { country = "", gender = "" } = {}) {
+  const genderMap = { Masculino: "male", Femenino: "female" };
+  const countryNeedles = {
+    Argentina: ["es-ar", "argentina", "argentinian", "spanish"],
+    "United States": ["en-us", "american", "english"],
+    German: ["de-de", "german", "deutsch"],
+    Mexico: ["es-mx", "mexico", "mexican", "spanish"]
+  };
+  const wantedGender = genderMap[gender] || "";
+  const needles = countryNeedles[country] || [];
+  return voices.filter((voice) => {
+    const labels = voice.labels || {};
+    const voiceGender = String(labels.gender || voice.gender || "").toLowerCase();
+    const genderOk = !wantedGender || voiceGender === wantedGender || !voiceGender;
+    const languageText = [
+      labels.accent,
+      labels.language,
+      labels.locale,
+      ...(voice.verified_languages || []).flatMap((item) => [item.language, item.locale, item.accent])
+    ].filter(Boolean).join(" ").toLowerCase();
+    const countryOk = !needles.length || needles.some((needle) => languageText.includes(needle));
+    return genderOk && countryOk;
+  });
+}
+
+export async function createVoicePreview(apiKey, voiceId, text) {
+  return elevenAudioFetch(apiKey, `/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, {
+    method: "POST",
+    body: JSON.stringify({
+      text,
+      model_id: "eleven_multilingual_v2"
+    })
   });
 }
 

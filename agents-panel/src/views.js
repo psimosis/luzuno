@@ -99,6 +99,18 @@ function imageStyleOptions(selected = "Corporativa") {
     .join("");
 }
 
+function optionList(values, selected = "") {
+  return values
+    .map((value) => `<option value="${esc(value)}" ${value === selected ? "selected" : ""}>${esc(value)}</option>`)
+    .join("");
+}
+
+function voiceOptions(voices = [], selectedVoiceId = "") {
+  return voices
+    .map((voice) => `<option value="${esc(voice.voice_id)}" data-name="${esc(voice.name)}" data-preview="${esc(voice.preview_url || "")}" ${voice.voice_id === selectedVoiceId ? "selected" : ""}>${esc(voice.name || voice.voice_id)}</option>`)
+    .join("");
+}
+
 function adminUserOptions(users, selectedUserId) {
   return users
     .map((user) => `<option value="${esc(user.id)}" ${user.id === selectedUserId ? "selected" : ""}>${esc(user.username || user.email || user.id)}</option>`)
@@ -149,10 +161,11 @@ export function dashboard(req, agents, settings, agentSettings = [], error = "",
   `, { adminUsers, selectedUserId });
 }
 
-export function agentDetail(req, agent, local, message = "", error = "", selectedUserId = "", adminUsers = []) {
+export function agentDetail(req, agent, local, voices = [], currentVoiceId = "", message = "", error = "", selectedUserId = "", adminUsers = []) {
   const systemPrompt = local.system_prompt || currentSystemPrompt(agent);
   const query = userQuery(req, selectedUserId);
   const hiddenUser = hiddenUserInput(req, selectedUserId);
+  const selectedVoiceId = local.voice_id || currentVoiceId;
   return layout(req, agent.name || "Agente", `
     <section class="page-head">
       <div>
@@ -175,6 +188,29 @@ export function agentDetail(req, agent, local, message = "", error = "", selecte
             <dt>Tags</dt><dd>${(agent.tags || []).map((tag) => `<span class="tag">${esc(tag)}</span>`).join("") || "-"}</dd>
           </dl>
         </article>
+        <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/persona">
+          ${hiddenUser}
+          <h2>Caracteristicas de la Persona</h2>
+          <label>Rol</label>
+          <input name="role_title" value="${esc(local.role_title || "")}">
+          <label>Area o Departamento</label>
+          <input name="department" value="${esc(local.department || "")}">
+          <label>Correo Electronico</label>
+          <input name="contact_email" type="email" value="${esc(local.contact_email || "")}">
+          <label>Nro de Contacto</label>
+          <input name="contact_phone" value="${esc(local.contact_phone || "")}">
+          <label>Pais</label>
+          <select id="persona-country" name="country">
+            <option value="">Seleccionar</option>
+            ${optionList(["Argentina", "United States", "German", "Mexico"], local.country || "")}
+          </select>
+          <label>Sexo</label>
+          <select id="persona-gender" name="gender">
+            <option value="">Seleccionar</option>
+            ${optionList(["Masculino", "Femenino"], local.gender || "")}
+          </select>
+          <button class="primary" type="submit">Guardar Datos</button>
+        </form>
         <form class="panel form quadrant-prompt" method="post" action="/agents/${esc(agent.agent_id)}/prompt">
           ${hiddenUser}
           <h2>Instrucciones de Comportamiento</h2>
@@ -201,6 +237,21 @@ export function agentDetail(req, agent, local, message = "", error = "", selecte
             <button class="primary" type="submit">Subir una Imagen</button>
           </form>
         </article>
+        <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/voice">
+          ${hiddenUser}
+          <h2>Voz del Anub</h2>
+          <input id="voice-name" type="hidden" name="voiceName" value="${esc(local.voice_name || "")}">
+          <label>Voces disponibles</label>
+          <select id="voice-select" name="voiceId" data-agent-id="${esc(agent.agent_id)}">
+            <option value="">Seleccionar voz</option>
+            ${voiceOptions(voices, selectedVoiceId)}
+          </select>
+          <div class="voice-actions">
+            <button id="voice-play" class="secondary" type="button">Play</button>
+            <audio id="voice-audio"></audio>
+          </div>
+          <button class="primary" type="submit">Guardar Voz</button>
+        </form>
         <form class="panel form quadrant-notes" method="post" action="/agents/${esc(agent.agent_id)}/local">
           ${hiddenUser}
           <h2>Notas locales</h2>
@@ -212,6 +263,7 @@ export function agentDetail(req, agent, local, message = "", error = "", selecte
         </form>
       </div>
     </section>
+    <script src="/agent-detail.js"></script>
   `, { adminUsers, selectedUserId });
 }
 

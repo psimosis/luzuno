@@ -55,6 +55,20 @@ export async function migrate() {
   await db.query("ALTER TABLE agent_settings ADD COLUMN profile_image_style VARCHAR(40) NULL").catch((error) => {
     if (error.code !== "ER_DUP_FIELDNAME") throw error;
   });
+  for (const statement of [
+    "ALTER TABLE agent_settings ADD COLUMN role_title VARCHAR(255) NULL",
+    "ALTER TABLE agent_settings ADD COLUMN department VARCHAR(255) NULL",
+    "ALTER TABLE agent_settings ADD COLUMN contact_email VARCHAR(255) NULL",
+    "ALTER TABLE agent_settings ADD COLUMN contact_phone VARCHAR(80) NULL",
+    "ALTER TABLE agent_settings ADD COLUMN country VARCHAR(80) NULL",
+    "ALTER TABLE agent_settings ADD COLUMN gender VARCHAR(40) NULL",
+    "ALTER TABLE agent_settings ADD COLUMN voice_id VARCHAR(128) NULL",
+    "ALTER TABLE agent_settings ADD COLUMN voice_name VARCHAR(255) NULL"
+  ]) {
+    await db.query(statement).catch((error) => {
+      if (error.code !== "ER_DUP_FIELDNAME") throw error;
+    });
+  }
 }
 
 function secretKey() {
@@ -139,15 +153,23 @@ export async function listUserSettings() {
 
 export async function saveAgentSettings(userId, agentId, values) {
   await getPool().execute(
-    `INSERT INTO agent_settings (user_id, agent_id, display_name, notes, system_prompt, patch_template, profile_image_path, profile_image_prompt, profile_image_style)
-     VALUES (:user_id, :agent_id, :display_name, :notes, :system_prompt, :patch_template, :profile_image_path, :profile_image_prompt, :profile_image_style)
+    `INSERT INTO agent_settings (user_id, agent_id, display_name, notes, system_prompt, patch_template, profile_image_path, profile_image_prompt, profile_image_style, role_title, department, contact_email, contact_phone, country, gender, voice_id, voice_name)
+     VALUES (:user_id, :agent_id, :display_name, :notes, :system_prompt, :patch_template, :profile_image_path, :profile_image_prompt, :profile_image_style, :role_title, :department, :contact_email, :contact_phone, :country, :gender, :voice_id, :voice_name)
      ON DUPLICATE KEY UPDATE display_name = COALESCE(VALUES(display_name), display_name),
        notes = COALESCE(VALUES(notes), notes),
        system_prompt = COALESCE(VALUES(system_prompt), system_prompt),
        patch_template = COALESCE(VALUES(patch_template), patch_template),
        profile_image_path = COALESCE(VALUES(profile_image_path), profile_image_path),
        profile_image_prompt = COALESCE(VALUES(profile_image_prompt), profile_image_prompt),
-       profile_image_style = COALESCE(VALUES(profile_image_style), profile_image_style)`,
+       profile_image_style = COALESCE(VALUES(profile_image_style), profile_image_style),
+       role_title = COALESCE(VALUES(role_title), role_title),
+       department = COALESCE(VALUES(department), department),
+       contact_email = COALESCE(VALUES(contact_email), contact_email),
+       contact_phone = COALESCE(VALUES(contact_phone), contact_phone),
+       country = COALESCE(VALUES(country), country),
+       gender = COALESCE(VALUES(gender), gender),
+       voice_id = COALESCE(VALUES(voice_id), voice_id),
+       voice_name = COALESCE(VALUES(voice_name), voice_name)`,
     {
       user_id: userId,
       agent_id: agentId,
@@ -157,7 +179,15 @@ export async function saveAgentSettings(userId, agentId, values) {
       patch_template: values.patch_template ?? null,
       profile_image_path: values.profile_image_path ?? null,
       profile_image_prompt: values.profile_image_prompt ?? null,
-      profile_image_style: values.profile_image_style ?? null
+      profile_image_style: values.profile_image_style ?? null,
+      role_title: values.role_title ?? null,
+      department: values.department ?? null,
+      contact_email: values.contact_email ?? null,
+      contact_phone: values.contact_phone ?? null,
+      country: values.country ?? null,
+      gender: values.gender ?? null,
+      voice_id: values.voice_id ?? null,
+      voice_name: values.voice_name ?? null
     }
   );
 }
@@ -187,5 +217,37 @@ export async function saveAgentProfileImage(userId, agentId, imagePath, prompt, 
     profile_image_path: imagePath,
     profile_image_prompt: prompt,
     profile_image_style: style
+  });
+}
+
+export async function saveAgentPersonaDetails(userId, agentId, values) {
+  await saveAgentSettings(userId, agentId, {
+    display_name: null,
+    notes: null,
+    system_prompt: null,
+    patch_template: null,
+    profile_image_path: null,
+    profile_image_prompt: null,
+    profile_image_style: null,
+    role_title: values.role_title,
+    department: values.department,
+    contact_email: values.contact_email,
+    contact_phone: values.contact_phone,
+    country: values.country,
+    gender: values.gender
+  });
+}
+
+export async function saveAgentVoice(userId, agentId, voiceId, voiceName) {
+  await saveAgentSettings(userId, agentId, {
+    display_name: null,
+    notes: null,
+    system_prompt: null,
+    patch_template: null,
+    profile_image_path: null,
+    profile_image_prompt: null,
+    profile_image_style: null,
+    voice_id: voiceId,
+    voice_name: voiceName
   });
 }

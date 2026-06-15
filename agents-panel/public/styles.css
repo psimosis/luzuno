@@ -500,6 +500,14 @@ h2 { margin: 0 0 16px; font-size: 18px; }
   border-top: 1px solid #e0e8f2;
   padding-top: 12px;
 }
+.voice-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.voice-actions audio {
+  display: none;
+}
 .panel { padding: 18px; margin-bottom: 16px; }
 .form { display: flex; flex-direction: column; gap: 10px; }
 label { font-size: 13px; color: var(--muted-dark); font-weight: 700; }

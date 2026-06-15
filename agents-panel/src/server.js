@@ -6,8 +6,8 @@ import express from "express";
 import multer from "multer";
 import session from "express-session";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { migrate, upsertUserProfile, getUserSettings, getApiKey, setApiKeyForUser, listUserSettings, saveAgentSettings, getAgentSettings, listAgentSettingsForUser, saveAgentProfileImage } from "./db.js";
-import { listAgents, getAgent, updateAgent, publishAgent } from "./elevenlabs.js";
+import { migrate, upsertUserProfile, getUserSettings, getApiKey, setApiKeyForUser, listUserSettings, saveAgentSettings, getAgentSettings, listAgentSettingsForUser, saveAgentProfileImage, saveAgentPersonaDetails, saveAgentVoice } from "./db.js";
+import { listAgents, getAgent, updateAgent, publishAgent, listVoices, filterVoices, createVoicePreview } from "./elevenlabs.js";
 import { generateProfileImage } from "./openai-images.js";
 import { adminPage, agentDetail, dashboard, loginPage } from "./views.js";
 import { supportPage } from "./views.js";
@@ -31,6 +31,7 @@ const upload = multer({
     return callback(new Error("Formato no soportado. Usa PNG, JPG o WebP."));
   }
 });
+const voicePreviewText = "Hola, Luzuno es una empresa de Inteligencia Artificial. Soy un anub y estoy para ashudarte.";
 
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 app.use(express.json({ limit: "2mb" }));
@@ -99,6 +100,38 @@ function systemPromptPatch(systemPrompt) {
         }
       }
     }
+  };
+}
+
+function voicePatch(voiceId) {
+  return {
+    conversation_config: {
+      tts: {
+        voice_id: voiceId
+      }
+    }
+  };
+}
+
+function currentVoiceId(agent) {
+  return agent.conversation_config?.tts?.voice_id || "";
+}
+
+function normalizeCountry(value) {
+  return ["Argentina", "United States", "German", "Mexico"].includes(value) ? value : "";
+}
+
+function normalizeGender(value) {
+  return ["Masculino", "Femenino"].includes(value) ? value : "";
+}
+
+function publicVoice(voice) {
+  return {
+    voice_id: voice.voice_id,
+    name: voice.name || voice.voice_id,
+    preview_url: voice.preview_url || "",
+    labels: voice.labels || {},
+    verified_languages: voice.verified_languages || []
   };
 }
 
@@ -310,8 +343,52 @@ app.get("/agents/:agentId", requireAuth, async (req, res, next) => {
     const agent = await getAgent(apiKey, req.params.agentId);
     const local = await getAgentSettings(userId, req.params.agentId);
     const adminUsers = hasAdminRole(req.session.user) ? await listUsers() : [];
-    const message = req.query.saved ? "Configuracion guardada y publicada." : req.query.image ? "Foto de perfil generada." : "";
-    res.send(agentDetail(req, agent, local, message, "", userId, adminUsers));
+    const voices = filterVoices(await listVoices(apiKey), {
+      country: local.country,
+      gender: local.gender
+    }).map(publicVoice);
+    const message = req.query.saved ? "Configuracion guardada y publicada." : req.query.image ? "Foto de perfil generada." : req.query.local ? "Datos locales guardados." : "";
+    res.send(agentDetail(req, agent, local, voices, currentVoiceId(agent), message, "", userId, adminUsers));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/voices", requireAuth, async (req, res, next) => {
+  try {
+    const userId = targetUserId(req);
+    const apiKey = await getApiKey(userId);
+    if (!apiKey) return res.status(403).json({ error: "Cuenta sin API key de ElevenLabs." });
+    const voices = filterVoices(await listVoices(apiKey), {
+      country: normalizeCountry(req.query.country),
+      gender: normalizeGender(req.query.gender)
+    }).map(publicVoice);
+    res.json({ voices });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/agents/:agentId/voice-preview", requireAuth, async (req, res, next) => {
+  try {
+    const userId = targetUserId(req);
+    const apiKey = await getApiKey(userId);
+    if (!apiKey) return res.status(403).send("Cuenta sin API key de ElevenLabs.");
+    const voiceId = String(req.query.voiceId || "");
+    if (!voiceId) return res.status(400).send("voiceId requerido.");
+    const voices = await listVoices(apiKey);
+    const voice = voices.find((item) => item.voice_id === voiceId);
+    if (!voice) return res.status(404).send("Voz no encontrada.");
+    let audio;
+    if (voice.preview_url) {
+      const preview = await fetch(voice.preview_url);
+      if (!preview.ok) throw new Error(`No se pudo obtener el preview de la voz: ${preview.status}`);
+      audio = Buffer.from(await preview.arrayBuffer());
+    } else {
+      audio = await createVoicePreview(apiKey, voiceId, voicePreviewText);
+    }
+    res.setHeader("content-type", "audio/mpeg");
+    res.send(audio);
   } catch (error) {
     next(error);
   }
@@ -368,6 +445,40 @@ app.post("/agents/:agentId/local", requireAuth, async (req, res) => {
     patch_template: null
   });
   res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}${targetUserQuery(req, userId)}`);
+});
+
+app.post("/agents/:agentId/persona", requireAuth, async (req, res, next) => {
+  try {
+    const userId = targetUserId(req);
+    await saveAgentPersonaDetails(userId, req.params.agentId, {
+      role_title: req.body.role_title || "",
+      department: req.body.department || "",
+      contact_email: req.body.contact_email || "",
+      contact_phone: req.body.contact_phone || "",
+      country: normalizeCountry(req.body.country),
+      gender: normalizeGender(req.body.gender)
+    });
+    res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}${targetUserQuery(req, userId)}${targetUserQuery(req, userId) ? "&" : "?"}local=1`);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/agents/:agentId/voice", requireAuth, async (req, res, next) => {
+  try {
+    const userId = targetUserId(req);
+    const apiKey = await getApiKey(userId);
+    if (!apiKey) return res.status(403).send("Cuenta nueva, aguarde a que un administrador de Luzuno configure su cuenta.");
+    const voiceId = String(req.body.voiceId || "").trim();
+    const voiceName = String(req.body.voiceName || "").trim();
+    if (!voiceId) return res.status(400).send("Selecciona una voz.");
+    await saveAgentVoice(userId, req.params.agentId, voiceId, voiceName);
+    await updateAgent(apiKey, req.params.agentId, voicePatch(voiceId));
+    await publishAgent(apiKey, req.params.agentId);
+    res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}${targetUserQuery(req, userId)}${targetUserQuery(req, userId) ? "&" : "?"}saved=1`);
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.post("/agents/:agentId/prompt", requireAuth, async (req, res, next) => {
