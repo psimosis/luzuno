@@ -395,6 +395,10 @@ export function clientsPage(req, users, localUsers, selectedUserId = "", message
     <section class="clients-layout">
       <article class="panel clients-list">
         <h2>${lineIcon("person")}Clientes</h2>
+        <div class="client-search">
+          <span aria-hidden="true">⌕</span>
+          <input id="client-search" type="search" placeholder="Buscar cliente">
+        </div>
         <div class="client-list-items">${clientListRows(users, localById, selectedUserId)}</div>
       </article>
       <div class="clients-main">
@@ -413,6 +417,7 @@ export function clientsPage(req, users, localUsers, selectedUserId = "", message
         ${selectedUser ? clientEditForm(selectedProfile) : `<article class="panel empty">No hay clientes para editar.</article>`}
       </div>
     </section>
+    <script src="/clients.js"></script>
   `, { adminUsers: users, selectedUserId, clientProfile: footerProfile || selectedProfile || req.res?.locals?.clientProfile });
 }
 
@@ -420,7 +425,8 @@ function clientListRows(users, localById, selectedUserId) {
   return users.map((user) => {
     const local = localById.get(user.id) || {};
     const company = local.company_name || (user.username === "panel-admin" ? "Luzuno" : user.username);
-    return `<a class="client-list-item ${user.id === selectedUserId ? "is-selected" : ""}" href="/clients/${esc(user.id)}">
+    const searchable = `${company} ${user.username || ""} ${user.email || ""}`.toLowerCase();
+    return `<a class="client-list-item ${user.id === selectedUserId ? "is-selected" : ""}" href="/clients/${esc(user.id)}" data-search="${esc(searchable)}">
       <strong>${esc(company)}</strong>
       <span>${esc(user.username || "")}</span>
     </a>`;

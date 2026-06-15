@@ -591,6 +591,23 @@ h2 { margin: 0 0 16px; font-size: 18px; }
   display: grid;
   gap: 8px;
 }
+.client-search {
+  position: relative;
+  margin-bottom: 12px;
+}
+.client-search span {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #53657a;
+  font-size: 18px;
+  font-weight: 900;
+  pointer-events: none;
+}
+.client-search input {
+  padding-left: 38px;
+}
 .client-list-item {
   display: grid;
   gap: 2px;
