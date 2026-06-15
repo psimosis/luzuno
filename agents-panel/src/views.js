@@ -111,6 +111,10 @@ function voiceOptions(voices = [], selectedVoiceId = "") {
     .join("");
 }
 
+function cardLabel(icon, label) {
+  return `<span><i class="ui-icon" data-icon="${esc(icon)}"></i>${esc(label)}</span>`;
+}
+
 function adminUserOptions(users, selectedUserId) {
   return users
     .map((user) => `<option value="${esc(user.id)}" ${user.id === selectedUserId ? "selected" : ""}>${esc(user.username || user.email || user.id)}</option>`)
@@ -136,21 +140,21 @@ export function dashboard(req, agents, settings, agentSettings = [], error = "",
   const cards = agents.map((agent) => {
     const local = settingsByAgent.get(agent.agent_id) || {};
     return `
-    <a class="agent-card" href="/agents/${esc(agent.agent_id)}${query}">
-      <div class="agent-card-header">
+    <a class="agent-card profile-agent-card" href="/agents/${esc(agent.agent_id)}${query}">
+      <div class="agent-card-media">
+        ${profileImageMarkup(local.profile_image_path, "agent-card-photo")}
+        <span class="${agent.archived ? "pill inactive-pill" : "pill active-pill"}">${agent.archived ? "Inactivo" : "Activo"}</span>
+      </div>
+      <div class="agent-card-title">
         <h2>${esc(agent.name || "Sin nombre")}</h2>
-        <div class="agent-card-side">
-          ${profileImageMarkup(local.profile_image_path)}
-          <span class="${agent.archived ? "pill inactive-pill" : "pill active-pill"}">${agent.archived ? "Inactivo" : "Activo"}</span>
-        </div>
       </div>
       <div class="agent-grid persona-grid">
-        <span>Rol</span><strong>${localValue(local.role_title)}</strong>
-        <span>Area o Departamento</span><strong>${localValue(local.department)}</strong>
-        <span>Correo Electronico</span><strong>${localValue(local.contact_email)}</strong>
-        <span>Nro de Contacto</span><strong>${localValue(local.contact_phone)}</strong>
-        <span>Pais</span><strong>${localValue(local.country)}</strong>
-        <span>Sexo</span><strong>${localValue(local.gender)}</strong>
+        ${cardLabel("R", "Rol")}<strong>${localValue(local.role_title)}</strong>
+        ${cardLabel("A", "Area o Departamento")}<strong>${localValue(local.department)}</strong>
+        ${cardLabel("@", "Correo Electronico")}<strong>${localValue(local.contact_email)}</strong>
+        ${cardLabel("T", "Nro de Contacto")}<strong>${localValue(local.contact_phone)}</strong>
+        ${cardLabel("P", "Pais")}<strong>${localValue(local.country)}</strong>
+        ${cardLabel("S", "Sexo")}<strong>${localValue(local.gender)}</strong>
       </div>
       <p class="agent-tags">${(agent.tags || []).map((tag) => `<span class="tag">${esc(tag)}</span>`).join("")}</p>
     </a>`;
@@ -187,7 +191,7 @@ export function agentDetail(req, agent, local, voices = [], currentVoiceId = "",
     <section class="agent-editor-grid">
       <div class="editor-column">
         <article class="panel quadrant-data">
-          <h2>Datos Principales</h2>
+          <h2><span class="section-icon" data-icon="D"></span>Datos Principales</h2>
           <dl class="details">
             <dt>Estado</dt><dd>${agent.archived ? "Archivado" : "Activo"}</dd>
             <dt>Creado</dt><dd>${agent.created_at_unix_secs ? new Date(agent.created_at_unix_secs * 1000).toLocaleString("es-AR") : "-"}</dd>
@@ -197,7 +201,7 @@ export function agentDetail(req, agent, local, voices = [], currentVoiceId = "",
         </article>
         <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/persona">
           ${hiddenUser}
-          <h2>Caracteristicas de la Persona</h2>
+          <h2><span class="section-icon" data-icon="P"></span>Caracteristicas de la Persona</h2>
           <label>Rol</label>
           <input name="role_title" value="${esc(local.role_title || "")}">
           <label>Area o Departamento</label>
@@ -220,14 +224,14 @@ export function agentDetail(req, agent, local, voices = [], currentVoiceId = "",
         </form>
         <form class="panel form quadrant-prompt" method="post" action="/agents/${esc(agent.agent_id)}/prompt">
           ${hiddenUser}
-          <h2>Instrucciones de Comportamiento</h2>
+          <h2><span class="section-icon" data-icon="I"></span>Instrucciones de Comportamiento</h2>
           <textarea class="code prompt-editor" name="systemPrompt" rows="12">${esc(systemPrompt)}</textarea>
           <button class="primary" type="submit">Guardar Configuracion</button>
         </form>
       </div>
       <div class="editor-column">
         <article class="panel form quadrant-photo">
-          <h2>Foto de Perfil</h2>
+          <h2><span class="section-icon" data-icon="F"></span>Foto de Perfil</h2>
           <form class="form compact-form" method="post" action="/agents/${esc(agent.agent_id)}/profile-image" data-generation-form>
             ${hiddenUser}
             <div class="profile-preview">${profileImageMarkup(local.profile_image_path, "profile-image")}</div>
@@ -246,7 +250,7 @@ export function agentDetail(req, agent, local, voices = [], currentVoiceId = "",
         </article>
         <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/voice">
           ${hiddenUser}
-          <h2>Voz del Anub</h2>
+          <h2><span class="section-icon" data-icon="V"></span>Voz del Anub</h2>
           ${voiceError ? `<div class="alert compact-alert">No se pudieron cargar las voces. La API key necesita el permiso voices_read.</div>` : ""}
           <input id="voice-name" type="hidden" name="voiceName" value="${esc(local.voice_name || "")}">
           <label>Voces disponibles</label>
@@ -262,7 +266,7 @@ export function agentDetail(req, agent, local, voices = [], currentVoiceId = "",
         </form>
         <form class="panel form quadrant-notes" method="post" action="/agents/${esc(agent.agent_id)}/local">
           ${hiddenUser}
-          <h2>Notas locales</h2>
+          <h2><span class="section-icon" data-icon="N"></span>Notas locales</h2>
           <label>Nombre interno</label>
           <input name="display_name" value="${esc(local.display_name || "")}">
           <label>Notas</label>
