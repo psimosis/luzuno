@@ -343,12 +343,18 @@ app.get("/agents/:agentId", requireAuth, async (req, res, next) => {
     const agent = await getAgent(apiKey, req.params.agentId);
     const local = await getAgentSettings(userId, req.params.agentId);
     const adminUsers = hasAdminRole(req.session.user) ? await listUsers() : [];
-    const voices = filterVoices(await listVoices(apiKey), {
-      country: local.country,
-      gender: local.gender
-    }).map(publicVoice);
+    let voices = [];
+    let voiceError = "";
+    try {
+      voices = filterVoices(await listVoices(apiKey), {
+        country: local.country,
+        gender: local.gender
+      }).map(publicVoice);
+    } catch (err) {
+      voiceError = err.message;
+    }
     const message = req.query.saved ? "Configuracion guardada y publicada." : req.query.image ? "Foto de perfil generada." : req.query.local ? "Datos locales guardados." : "";
-    res.send(agentDetail(req, agent, local, voices, currentVoiceId(agent), message, "", userId, adminUsers));
+    res.send(agentDetail(req, agent, local, voices, currentVoiceId(agent), voiceError, message, "", userId, adminUsers));
   } catch (error) {
     next(error);
   }

@@ -161,7 +161,7 @@ export function dashboard(req, agents, settings, agentSettings = [], error = "",
   `, { adminUsers, selectedUserId });
 }
 
-export function agentDetail(req, agent, local, voices = [], currentVoiceId = "", message = "", error = "", selectedUserId = "", adminUsers = []) {
+export function agentDetail(req, agent, local, voices = [], currentVoiceId = "", voiceError = "", message = "", error = "", selectedUserId = "", adminUsers = []) {
   const systemPrompt = local.system_prompt || currentSystemPrompt(agent);
   const query = userQuery(req, selectedUserId);
   const hiddenUser = hiddenUserInput(req, selectedUserId);
@@ -240,17 +240,18 @@ export function agentDetail(req, agent, local, voices = [], currentVoiceId = "",
         <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/voice">
           ${hiddenUser}
           <h2>Voz del Anub</h2>
+          ${voiceError ? `<div class="alert compact-alert">No se pudieron cargar las voces. La API key necesita el permiso voices_read.</div>` : ""}
           <input id="voice-name" type="hidden" name="voiceName" value="${esc(local.voice_name || "")}">
           <label>Voces disponibles</label>
-          <select id="voice-select" name="voiceId" data-agent-id="${esc(agent.agent_id)}">
+          <select id="voice-select" name="voiceId" data-agent-id="${esc(agent.agent_id)}" ${voiceError ? "disabled" : ""}>
             <option value="">Seleccionar voz</option>
             ${voiceOptions(voices, selectedVoiceId)}
           </select>
           <div class="voice-actions">
-            <button id="voice-play" class="secondary" type="button">Play</button>
+            <button id="voice-play" class="secondary" type="button" ${voiceError ? "disabled" : ""}>Play</button>
             <audio id="voice-audio"></audio>
           </div>
-          <button class="primary" type="submit">Guardar Voz</button>
+          <button class="primary" type="submit" ${voiceError ? "disabled" : ""}>Guardar Voz</button>
         </form>
         <form class="panel form quadrant-notes" method="post" action="/agents/${esc(agent.agent_id)}/local">
           ${hiddenUser}
