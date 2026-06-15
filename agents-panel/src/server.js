@@ -363,7 +363,8 @@ app.get("/agents/:agentId", requireAuth, async (req, res, next) => {
       voiceError = err.message;
     }
     const message = req.query.saved ? "Configuracion guardada y publicada." : req.query.image ? "Foto de perfil generada." : req.query.local ? "Datos locales guardados." : "";
-    res.send(agentDetail(req, agent, local, voices, currentVoiceId(agent), voiceError, message, "", userId, adminUsers));
+    const pageError = req.query.imageError ? String(req.query.imageError) : "";
+    res.send(agentDetail(req, agent, local, voices, currentVoiceId(agent), voiceError, message, pageError, userId, adminUsers));
   } catch (error) {
     next(error);
   }
@@ -412,10 +413,12 @@ app.get("/agents/:agentId/voice-preview", requireAuth, async (req, res, next) =>
 app.post("/agents/:agentId/profile-image", requireAuth, async (req, res, next) => {
   try {
     const userId = targetUserId(req);
+    const redirectBase = `/agents/${encodeURIComponent(req.params.agentId)}${targetUserQuery(req, userId)}`;
+    const redirectJoin = redirectBase.includes("?") ? "&" : "?";
     const apiKey = await getApiKey(userId);
     if (!apiKey) return res.status(403).send("Cuenta nueva, aguarde a que un administrador de Luzuno configure su cuenta.");
     const instructions = String(req.body.imagePrompt || "").trim();
-    if (!instructions) return res.status(400).send("Ingresa instrucciones para generar la imagen de perfil.");
+    if (!instructions) return res.redirect(`${redirectBase}${redirectJoin}imageError=${encodeURIComponent("Ingresa las caracteristicas de la persona para generar la imagen de perfil.")}`);
     const imageStyle = ["Corporativa", "Medicina", "Informal", "Industrial"].includes(req.body.imageStyle)
       ? req.body.imageStyle
       : "Corporativa";
@@ -423,7 +426,7 @@ app.post("/agents/:agentId/profile-image", requireAuth, async (req, res, next) =
     const prompt = profileImagePrompt(agent, instructions, imageStyle);
     const imageBuffer = await generateProfileImage(prompt);
     await replaceProfileImage(userId, req.params.agentId, imageBuffer, "png", instructions, imageStyle);
-    res.redirect(`/agents/${encodeURIComponent(req.params.agentId)}${targetUserQuery(req, userId)}${targetUserQuery(req, userId) ? "&" : "?"}image=1`);
+    res.redirect(`${redirectBase}${redirectJoin}image=1`);
   } catch (error) {
     next(error);
   }

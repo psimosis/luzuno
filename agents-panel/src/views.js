@@ -58,7 +58,12 @@ export function layout(req, title, body, options = {}) {
   ${clientFooter}
   <script>
     document.querySelectorAll("[data-generation-form]").forEach((form) => {
-      form.addEventListener("submit", () => {
+      form.addEventListener("submit", (event) => {
+        if (!form.checkValidity()) {
+          event.preventDefault();
+          form.reportValidity();
+          return;
+        }
         document.getElementById("generationOverlay")?.classList.add("is-visible");
       });
     });
@@ -255,7 +260,7 @@ export function agentDetail(req, agent, local, voices = [], currentVoiceId = "",
             <label>Estilo de la foto</label>
             <select name="imageStyle">${imageStyleOptions(local.profile_image_style || "Corporativa")}</select>
             <label>Caracteristicas de la Persona</label>
-            <textarea name="imagePrompt" rows="4" placeholder="Ej: mujer ejecutiva de 35 anos, cabello oscuro, expresion amable">${esc(local.profile_image_prompt || "")}</textarea>
+            <textarea name="imagePrompt" rows="4" required placeholder="Ej: mujer ejecutiva de 35 anos, cabello oscuro, expresion amable">${esc(local.profile_image_prompt || "")}</textarea>
             <button class="primary" type="submit">Generar Imagen de Perfil</button>
           </form>
           <form class="form compact-form upload-form" method="post" action="/agents/${esc(agent.agent_id)}/profile-image/upload" enctype="multipart/form-data">
