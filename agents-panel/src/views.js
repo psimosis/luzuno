@@ -29,6 +29,10 @@ export function layout(req, title, body, options = {}) {
   const user = req.session.user;
   const admin = hasAdminRole(user);
   const selectedQuery = options.selectedUserId ? userQuery(req, options.selectedUserId) : "";
+  const client = options.clientProfile || req.res?.locals?.clientProfile || {};
+  const clientUsername = client.username || user?.preferred_username || user?.email || user?.sub || "";
+  const clientCompany = client.company_name || (clientUsername === "panel-admin" ? "Luzuno" : clientUsername);
+  const clientFooter = user ? `<footer class="site-footer"><span>Cliente: ${esc(clientCompany)}${clientUsername ? ` (${esc(clientUsername)})` : ""}</span></footer>` : "";
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -47,10 +51,11 @@ export function layout(req, title, body, options = {}) {
   <header class="topbar">
     <a class="brand" href="/dashboard${selectedQuery}"><img src="/logo-luzuno.png" alt="Luzuno"><span>Panel de Control</span></a>
     <nav>
-      ${user ? `${headerTenantSelector(req, options.adminUsers, options.selectedUserId)}<a href="/dashboard${selectedQuery}">Dashboard</a>${admin ? `<a href="/admin">Administracion</a>` : ""}<a href="/support${selectedQuery}">Soporte Tecnico</a><a href="/logout">Salir</a>` : ""}
+      ${user ? `${headerTenantSelector(req, options.adminUsers, options.selectedUserId)}<a href="/dashboard${selectedQuery}">Dashboard</a>${admin ? `<a href="/clients">Clientes</a><a href="/admin">Administracion</a>` : ""}<a href="/support${selectedQuery}">Soporte Tecnico</a><a href="/logout">Salir</a>` : ""}
     </nav>
   </header>
   <main>${body}</main>
+  ${clientFooter}
   <script>
     document.querySelectorAll("[data-generation-form]").forEach((form) => {
       form.addEventListener("submit", () => {
@@ -371,6 +376,72 @@ export function adminPage(req, users, localUsers, message = "", error = "") {
   `, { adminUsers: users, selectedUserId: req.query.userId || req.session.user.sub });
 }
 
+export function clientsPage(req, users, localUsers, selectedUserId = "", message = "", error = "", footerProfile = null) {
+  const localById = new Map(localUsers.map((item) => [item.user_id, item]));
+  const selectedUser = users.find((user) => user.id === selectedUserId) || users[0] || null;
+  const selectedLocal = selectedUser ? localById.get(selectedUser.id) || {} : {};
+  const selectedProfile = selectedUser ? {
+    ...selectedLocal,
+    user_id: selectedUser.id,
+    username: selectedUser.username || selectedLocal.username,
+    email: selectedUser.email || selectedLocal.email
+  } : null;
+  return layout(req, "Clientes", `
+    <section class="page-head">
+      <div><p class="eyebrow">Gestion</p><h1>Clientes</h1></div>
+    </section>
+    ${message ? `<div class="notice">${esc(message)}</div>` : ""}
+    ${error ? `<div class="alert">${esc(error)}</div>` : ""}
+    <section class="clients-layout">
+      <article class="panel clients-list">
+        <h2>${lineIcon("person")}Clientes</h2>
+        <div class="client-list-items">${clientListRows(users, localById, selectedUserId)}</div>
+      </article>
+      <div class="clients-main">
+        <form class="panel form" method="post" action="/clients">
+          <h2>${lineIcon("person")}Nuevo Cliente</h2>
+          <label>Nombre de la Empresa</label><input name="company_name" required>
+          <label>CUIT</label><input name="cuit">
+          <label>Direccion</label><input name="address">
+          <label>Telefono</label><input name="phone">
+          <label>Persona de Contacto</label><input name="contact_person">
+          <label>Correo Electronico</label><input name="contact_email" type="email">
+          <label>Nombre de Usuario</label><input name="username" required>
+          <label>Contraseña</label><input name="password" type="password" required>
+          <button class="primary" type="submit">Crear Cliente</button>
+        </form>
+        ${selectedUser ? clientEditForm(selectedProfile) : `<article class="panel empty">No hay clientes para editar.</article>`}
+      </div>
+    </section>
+  `, { adminUsers: users, selectedUserId, clientProfile: footerProfile || selectedProfile || req.res?.locals?.clientProfile });
+}
+
+function clientListRows(users, localById, selectedUserId) {
+  return users.map((user) => {
+    const local = localById.get(user.id) || {};
+    const company = local.company_name || (user.username === "panel-admin" ? "Luzuno" : user.username);
+    return `<a class="client-list-item ${user.id === selectedUserId ? "is-selected" : ""}" href="/clients/${esc(user.id)}">
+      <strong>${esc(company)}</strong>
+      <span>${esc(user.username || "")}</span>
+    </a>`;
+  }).join("");
+}
+
+function clientEditForm(client) {
+  return `<form class="panel form" method="post" action="/clients/${esc(client.user_id)}">
+    <h2>${lineIcon("data")}Datos del Cliente</h2>
+    <label>Nombre de la Empresa</label><input name="company_name" value="${esc(client.company_name || "")}" required>
+    <label>CUIT</label><input name="cuit" value="${esc(client.cuit || "")}">
+    <label>Direccion</label><input name="address" value="${esc(client.address || "")}">
+    <label>Telefono</label><input name="phone" value="${esc(client.phone || "")}">
+    <label>Persona de Contacto</label><input name="contact_person" value="${esc(client.contact_person || "")}">
+    <label>Correo Electronico</label><input name="contact_email" type="email" value="${esc(client.contact_email || client.email || "")}">
+    <label>Nombre de Usuario</label><input name="username" value="${esc(client.username || "")}" readonly>
+    <label>Contraseña</label><input name="password" type="password" placeholder="Dejar vacio para conservar">
+    <button class="primary" type="submit">Guardar Cliente</button>
+  </form>`;
+}
+
 function userRows(users) {
   return users.map((user) => {
     const roles = user.realmRoles || [];
@@ -397,8 +468,9 @@ function userRows(users) {
 function apiKeyRows(users, localById) {
   return users.map((user) => {
     const local = localById.get(user.id);
+    const label = local?.company_name || user.username;
     return `<tr>
-      <td><strong>${esc(user.username)}</strong><span>${esc(user.email || "")}</span></td>
+      <td><strong>${esc(label)}</strong><span>${esc(user.username || "")}${user.email ? ` · ${esc(user.email)}` : ""}</span></td>
       <td>${local?.api_key_last4 ? `****${esc(local.api_key_last4)}` : "-"}</td>
       <td>
         <form method="post" action="/admin/users/${esc(user.id)}/api-key" class="inline-form">

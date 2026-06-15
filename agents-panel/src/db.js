@@ -31,6 +31,18 @@ export async function migrate() {
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
+  for (const statement of [
+    "ALTER TABLE user_settings ADD COLUMN company_name VARCHAR(255) NULL",
+    "ALTER TABLE user_settings ADD COLUMN cuit VARCHAR(80) NULL",
+    "ALTER TABLE user_settings ADD COLUMN address VARCHAR(255) NULL",
+    "ALTER TABLE user_settings ADD COLUMN phone VARCHAR(80) NULL",
+    "ALTER TABLE user_settings ADD COLUMN contact_person VARCHAR(255) NULL",
+    "ALTER TABLE user_settings ADD COLUMN contact_email VARCHAR(255) NULL"
+  ]) {
+    await db.query(statement).catch((error) => {
+      if (error.code !== "ER_DUP_FIELDNAME") throw error;
+    });
+  }
   await db.query(`
     CREATE TABLE IF NOT EXISTS agent_settings (
       user_id VARCHAR(128) NOT NULL,
@@ -146,9 +158,35 @@ export async function getApiKey(userId) {
 
 export async function listUserSettings() {
   const [rows] = await getPool().query(
-    "SELECT user_id, username, email, api_key_last4, updated_at FROM user_settings ORDER BY username"
+    "SELECT user_id, username, email, company_name, cuit, address, phone, contact_person, contact_email, api_key_last4, updated_at FROM user_settings ORDER BY COALESCE(company_name, username), username"
   );
   return rows;
+}
+
+export async function saveClientDetails(userId, values) {
+  await getPool().execute(
+    `INSERT INTO user_settings (user_id, username, email, company_name, cuit, address, phone, contact_person, contact_email)
+     VALUES (:user_id, :username, :email, :company_name, :cuit, :address, :phone, :contact_person, :contact_email)
+     ON DUPLICATE KEY UPDATE username = VALUES(username),
+       email = VALUES(email),
+       company_name = VALUES(company_name),
+       cuit = VALUES(cuit),
+       address = VALUES(address),
+       phone = VALUES(phone),
+       contact_person = VALUES(contact_person),
+       contact_email = VALUES(contact_email)`,
+    {
+      user_id: userId,
+      username: values.username,
+      email: values.email || null,
+      company_name: values.company_name || null,
+      cuit: values.cuit || null,
+      address: values.address || null,
+      phone: values.phone || null,
+      contact_person: values.contact_person || null,
+      contact_email: values.contact_email || null
+    }
+  );
 }
 
 export async function saveAgentSettings(userId, agentId, values) {

@@ -6,10 +6,10 @@ import express from "express";
 import multer from "multer";
 import session from "express-session";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { migrate, upsertUserProfile, getUserSettings, getApiKey, setApiKeyForUser, listUserSettings, saveAgentSettings, getAgentSettings, listAgentSettingsForUser, saveAgentProfileImage, saveAgentPersonaDetails, saveAgentVoice } from "./db.js";
+import { migrate, upsertUserProfile, getUserSettings, getApiKey, setApiKeyForUser, listUserSettings, saveAgentSettings, getAgentSettings, listAgentSettingsForUser, saveAgentProfileImage, saveAgentPersonaDetails, saveAgentVoice, saveClientDetails } from "./db.js";
 import { listAgents, getAgent, updateAgent, publishAgent, listVoices, filterVoices, createVoicePreview } from "./elevenlabs.js";
 import { generateProfileImage } from "./openai-images.js";
-import { adminPage, agentDetail, dashboard, loginPage } from "./views.js";
+import { adminPage, agentDetail, clientsPage, dashboard, loginPage } from "./views.js";
 import { supportPage } from "./views.js";
 import { authUrl, hasAdminRole, internalIssuer, listUsers, createUser, deleteUser, resetPassword, setUserAdmin, tokenUrl, logoutUrl, oidcIssuer } from "./keycloak.js";
 
@@ -66,6 +66,15 @@ function targetUserQuery(req, userId) {
     ? `?userId=${encodeURIComponent(userId)}`
     : "";
 }
+
+app.use(async (req, res, next) => {
+  if (!req.session?.user) return next();
+  try {
+    const userId = targetUserId(req);
+    res.locals.clientProfile = await getUserSettings(userId);
+  } catch {}
+  return next();
+});
 
 function supportPresets() {
   return [1, 2, 3]
@@ -515,6 +524,76 @@ app.get("/admin", requireAdmin, async (req, res) => {
     res.send(adminPage(req, users, localUsers, req.query.saved ? "Cambios guardados." : ""));
   } catch (error) {
     res.send(adminPage(req, [], [], "", error.message));
+  }
+});
+
+app.get("/clients", requireAdmin, async (req, res) => {
+  try {
+    const users = await listUsers();
+    const localUsers = await listUserSettings();
+    const selectedUserId = req.query.userId || users[0]?.id || "";
+    res.send(clientsPage(req, users, localUsers, selectedUserId, req.query.saved ? "Cliente guardado." : ""));
+  } catch (error) {
+    res.send(clientsPage(req, [], [], "", "", error.message));
+  }
+});
+
+app.get("/clients/:userId", requireAdmin, async (req, res) => {
+  try {
+    const users = await listUsers();
+    const localUsers = await listUserSettings();
+    const selectedUserId = req.params.userId;
+    const selectedProfile = localUsers.find((item) => item.user_id === selectedUserId) || await getUserSettings(selectedUserId);
+    res.send(clientsPage(req, users, localUsers, selectedUserId, req.query.saved ? "Cliente guardado." : "", "", selectedProfile));
+  } catch (error) {
+    res.send(clientsPage(req, [], [], "", "", error.message));
+  }
+});
+
+app.post("/clients", requireAdmin, async (req, res, next) => {
+  try {
+    const created = await createUser({
+      username: req.body.username,
+      email: req.body.contact_email,
+      password: req.body.password,
+      admin: false
+    });
+    await saveClientDetails(created.id, {
+      username: req.body.username,
+      email: req.body.contact_email,
+      company_name: req.body.company_name,
+      cuit: req.body.cuit,
+      address: req.body.address,
+      phone: req.body.phone,
+      contact_person: req.body.contact_person,
+      contact_email: req.body.contact_email
+    });
+    res.redirect(`/clients/${encodeURIComponent(created.id)}?saved=1`);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/clients/:userId", requireAdmin, async (req, res, next) => {
+  try {
+    const users = await listUsers();
+    const user = users.find((item) => item.id === req.params.userId);
+    await saveClientDetails(req.params.userId, {
+      username: user?.username || req.body.username,
+      email: req.body.contact_email,
+      company_name: req.body.company_name,
+      cuit: req.body.cuit,
+      address: req.body.address,
+      phone: req.body.phone,
+      contact_person: req.body.contact_person,
+      contact_email: req.body.contact_email
+    });
+    if (req.body.password) {
+      await resetPassword(req.params.userId, req.body.password);
+    }
+    res.redirect(`/clients/${encodeURIComponent(req.params.userId)}?saved=1`);
+  } catch (error) {
+    next(error);
   }
 });
 
