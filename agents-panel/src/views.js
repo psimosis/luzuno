@@ -111,8 +111,20 @@ function voiceOptions(voices = [], selectedVoiceId = "") {
     .join("");
 }
 
-function cardLabel(icon, label) {
-  return `<span><i class="ui-icon" data-icon="${esc(icon)}"></i>${esc(label)}</span>`;
+function cardLabel(label) {
+  return `<span>${esc(label)}</span>`;
+}
+
+function lineIcon(name) {
+  const icons = {
+    data: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg>`,
+    person: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>`,
+    prompt: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>`,
+    image: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z"/><path d="m4 16 5-5 4 4 2-2 5 5"/><path d="M15 9h.01"/></svg>`,
+    voice: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4H4Z"/><path d="M17 9a4 4 0 0 1 0 6"/><path d="M19.5 6.5a8 8 0 0 1 0 11"/></svg>`,
+    notes: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11l3 3v13H5z"/><path d="M16 4v4h4"/><path d="M8 12h8M8 16h6"/></svg>`
+  };
+  return `<span class="section-icon">${icons[name] || icons.data}</span>`;
 }
 
 function adminUserOptions(users, selectedUserId) {
@@ -149,12 +161,12 @@ export function dashboard(req, agents, settings, agentSettings = [], error = "",
         <span class="${agent.archived ? "pill inactive-pill" : "pill active-pill"}">${agent.archived ? "Inactivo" : "Activo"}</span>
       </div>
       <div class="agent-grid persona-grid">
-        ${cardLabel("R", "Rol")}<strong>${localValue(local.role_title)}</strong>
-        ${cardLabel("A", "Area o Departamento")}<strong>${localValue(local.department)}</strong>
-        ${cardLabel("@", "Correo Electronico")}<strong>${localValue(local.contact_email)}</strong>
-        ${cardLabel("T", "Nro de Contacto")}<strong>${localValue(local.contact_phone)}</strong>
-        ${cardLabel("P", "Pais")}<strong>${localValue(local.country)}</strong>
-        ${cardLabel("S", "Sexo")}<strong>${localValue(local.gender)}</strong>
+        ${cardLabel("Rol")}<strong>${localValue(local.role_title)}</strong>
+        ${cardLabel("Area o Departamento")}<strong>${localValue(local.department)}</strong>
+        ${cardLabel("Correo Electronico")}<strong>${localValue(local.contact_email)}</strong>
+        ${cardLabel("Nro de Contacto")}<strong>${localValue(local.contact_phone)}</strong>
+        ${cardLabel("Pais")}<strong>${localValue(local.country)}</strong>
+        ${cardLabel("Sexo")}<strong>${localValue(local.gender)}</strong>
       </div>
       <p class="agent-tags">${(agent.tags || []).map((tag) => `<span class="tag">${esc(tag)}</span>`).join("")}</p>
     </a>`;
@@ -191,7 +203,7 @@ export function agentDetail(req, agent, local, voices = [], currentVoiceId = "",
     <section class="agent-editor-grid">
       <div class="editor-column">
         <article class="panel quadrant-data">
-          <h2><span class="section-icon" data-icon="D"></span>Datos Principales</h2>
+          <h2>${lineIcon("data")}Datos Principales</h2>
           <dl class="details">
             <dt>Estado</dt><dd>${agent.archived ? "Archivado" : "Activo"}</dd>
             <dt>Creado</dt><dd>${agent.created_at_unix_secs ? new Date(agent.created_at_unix_secs * 1000).toLocaleString("es-AR") : "-"}</dd>
@@ -201,7 +213,7 @@ export function agentDetail(req, agent, local, voices = [], currentVoiceId = "",
         </article>
         <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/persona">
           ${hiddenUser}
-          <h2><span class="section-icon" data-icon="P"></span>Caracteristicas de la Persona</h2>
+          <h2>${lineIcon("person")}Caracteristicas de la Persona</h2>
           <label>Rol</label>
           <input name="role_title" value="${esc(local.role_title || "")}">
           <label>Area o Departamento</label>
@@ -224,14 +236,14 @@ export function agentDetail(req, agent, local, voices = [], currentVoiceId = "",
         </form>
         <form class="panel form quadrant-prompt" method="post" action="/agents/${esc(agent.agent_id)}/prompt">
           ${hiddenUser}
-          <h2><span class="section-icon" data-icon="I"></span>Instrucciones de Comportamiento</h2>
+          <h2>${lineIcon("prompt")}Instrucciones de Comportamiento</h2>
           <textarea class="code prompt-editor" name="systemPrompt" rows="12">${esc(systemPrompt)}</textarea>
           <button class="primary" type="submit">Guardar Configuracion</button>
         </form>
       </div>
       <div class="editor-column">
         <article class="panel form quadrant-photo">
-          <h2><span class="section-icon" data-icon="F"></span>Foto de Perfil</h2>
+          <h2>${lineIcon("image")}Foto de Perfil</h2>
           <form class="form compact-form" method="post" action="/agents/${esc(agent.agent_id)}/profile-image" data-generation-form>
             ${hiddenUser}
             <div class="profile-preview">${profileImageMarkup(local.profile_image_path, "profile-image")}</div>
@@ -250,7 +262,7 @@ export function agentDetail(req, agent, local, voices = [], currentVoiceId = "",
         </article>
         <form class="panel form" method="post" action="/agents/${esc(agent.agent_id)}/voice">
           ${hiddenUser}
-          <h2><span class="section-icon" data-icon="V"></span>Voz del Anub</h2>
+          <h2>${lineIcon("voice")}Voz del Anub</h2>
           ${voiceError ? `<div class="alert compact-alert">No se pudieron cargar las voces. La API key necesita el permiso voices_read.</div>` : ""}
           <input id="voice-name" type="hidden" name="voiceName" value="${esc(local.voice_name || "")}">
           <label>Voces disponibles</label>
@@ -266,7 +278,7 @@ export function agentDetail(req, agent, local, voices = [], currentVoiceId = "",
         </form>
         <form class="panel form quadrant-notes" method="post" action="/agents/${esc(agent.agent_id)}/local">
           ${hiddenUser}
-          <h2><span class="section-icon" data-icon="N"></span>Notas locales</h2>
+          <h2>${lineIcon("notes")}Notas locales</h2>
           <label>Nombre interno</label>
           <input name="display_name" value="${esc(local.display_name || "")}">
           <label>Notas</label>
