@@ -250,6 +250,9 @@ export function supportPage(req, presets, adminUsers = [], selectedUserId = "", 
       <article class="panel support-chat-panel">
         <h2>Chat</h2>
         <div id="support-transcript" class="support-transcript"></div>
+        <div class="support-chat-input">
+          <input id="support-chat-input" type="text" placeholder="Inicie la comunicacion para escribir" disabled>
+        </div>
         <div id="support-error" class="alert support-error"></div>
       </article>
     </section>

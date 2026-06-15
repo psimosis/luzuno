@@ -320,6 +320,13 @@ h2 { margin: 0 0 16px; font-size: 18px; }
   padding: 12px;
   background: #f8fbff;
 }
+.support-chat-input {
+  margin-top: 12px;
+}
+.support-chat-input input:disabled {
+  background: #eef4fb;
+  color: var(--muted-dark);
+}
 .support-message {
   display: flex;
   flex-direction: column;

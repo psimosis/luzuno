@@ -3,6 +3,7 @@ const { AnamEvent, createClient } = window.anam || {};
 const presets = config.presets || [];
 let selectedIndex = 0;
 let client = null;
+let micStream = null;
 let status = "idle";
 const messages = new Map();
 
@@ -16,6 +17,7 @@ const startButton = document.getElementById("support-start");
 const stopButton = document.getElementById("support-stop");
 const prevButton = document.getElementById("support-prev");
 const nextButton = document.getElementById("support-next");
+const chatInput = document.getElementById("support-chat-input");
 
 function currentPreset() {
   return presets[Math.min(selectedIndex, Math.max(presets.length - 1, 0))] || null;
@@ -33,6 +35,12 @@ function setStatus(nextStatus) {
   stopButton.classList.toggle("is-visible", status === "connected");
   prevButton.disabled = active || presets.length < 2;
   nextButton.disabled = active || presets.length < 2;
+  if (chatInput) {
+    chatInput.disabled = status !== "connected";
+    chatInput.placeholder = status === "connected"
+      ? "Escriba su mensaje y presione ENTER"
+      : "Inicie la comunicacion para escribir";
+  }
 }
 
 function setError(message = "") {
@@ -72,6 +80,28 @@ function renderPersonas() {
   });
 }
 
+function releaseMicrophone() {
+  micStream?.getTracks().forEach((track) => track.stop());
+  micStream = null;
+}
+
+async function requestMicrophone() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("El navegador no permite usar microfono en este origen. Use HTTPS o localhost.");
+  }
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    });
+  } catch (error) {
+    throw new Error("Permiso de microfono denegado o no disponible. Revise los permisos del navegador.");
+  }
+}
+
 async function start() {
   const preset = currentPreset();
   if (!createClient || !AnamEvent) {
@@ -88,6 +118,8 @@ async function start() {
   renderMessages();
 
   try {
+    releaseMicrophone();
+    await requestMicrophone();
     const response = await fetch("/api/anam-session", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -111,14 +143,16 @@ async function start() {
     });
     client.addListener(AnamEvent.CONNECTION_CLOSED, () => {
       client = null;
+      releaseMicrophone();
       setStatus("idle");
     });
 
-    await client.streamToVideoElement("support-avatar-video");
+    await client.streamToVideoElement("support-avatar-video", micStream);
     setStatus("connected");
   } catch (error) {
     console.error(error);
     client = null;
+    releaseMicrophone();
     setError(error instanceof Error ? error.message : String(error));
     setStatus("error");
   }
@@ -129,6 +163,7 @@ async function stop() {
     await client?.stopStreaming();
   } catch {}
   client = null;
+  releaseMicrophone();
   setStatus("idle");
 }
 
@@ -145,6 +180,28 @@ nextButton.addEventListener("click", () => {
   selectedIndex = (selectedIndex + 1) % presets.length;
   preview.src = currentPreset().previewImage;
   renderPersonas();
+});
+
+chatInput?.addEventListener("keydown", async (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  const text = chatInput.value.trim();
+  if (!text || status !== "connected" || !client) return;
+
+  try {
+    client.sendUserMessage(text);
+    const messageId = `local-${Date.now()}`;
+    messages.set(messageId, {
+      id: messageId,
+      role: "user",
+      content: text
+    });
+    chatInput.value = "";
+    renderMessages();
+  } catch (error) {
+    console.error(error);
+    setError(error instanceof Error ? error.message : String(error));
+  }
 });
 
 preview.src = currentPreset()?.previewImage || "/support-avatar-preview.png";
