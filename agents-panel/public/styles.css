@@ -458,6 +458,13 @@ h2 { margin: 0 0 16px; font-size: 18px; }
   color: var(--muted-dark);
   font-size: 14px;
 }
+.persona-grid {
+  grid-template-columns: 150px 1fr;
+}
+.persona-grid span {
+  color: #08345f;
+  font-weight: 800;
+}
 .agent-grid strong, .details dd {
   color: var(--dark-text);
   margin: 0;

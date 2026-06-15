@@ -202,7 +202,7 @@ export async function getAgentSettings(userId, agentId) {
 
 export async function listAgentSettingsForUser(userId) {
   const [rows] = await getPool().execute(
-    "SELECT agent_id, profile_image_path, profile_image_prompt FROM agent_settings WHERE user_id = ?",
+    "SELECT agent_id, profile_image_path, profile_image_prompt, role_title, department, contact_email, contact_phone, country, gender FROM agent_settings WHERE user_id = ?",
     [userId]
   );
   return rows;

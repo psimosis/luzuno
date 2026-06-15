@@ -130,24 +130,31 @@ function hiddenUserInput(req, selectedUserId) {
 }
 
 export function dashboard(req, agents, settings, agentSettings = [], error = "", adminUsers = [], selectedUserId = "") {
-  const imagesByAgent = new Map(agentSettings.map((item) => [item.agent_id, item.profile_image_path]));
+  const settingsByAgent = new Map(agentSettings.map((item) => [item.agent_id, item]));
   const query = userQuery(req, selectedUserId);
-  const cards = agents.map((agent) => `
+  const localValue = (value) => value ? esc(value) : "Sin Datos";
+  const cards = agents.map((agent) => {
+    const local = settingsByAgent.get(agent.agent_id) || {};
+    return `
     <a class="agent-card" href="/agents/${esc(agent.agent_id)}${query}">
       <div class="agent-card-header">
         <h2>${esc(agent.name || "Sin nombre")}</h2>
         <div class="agent-card-side">
-          ${profileImageMarkup(imagesByAgent.get(agent.agent_id))}
+          ${profileImageMarkup(local.profile_image_path)}
           <span class="${agent.archived ? "pill inactive-pill" : "pill active-pill"}">${agent.archived ? "Inactivo" : "Activo"}</span>
         </div>
       </div>
-      <p class="meta">ID ${esc(agent.agent_id)}</p>
       <p>${(agent.tags || []).map((tag) => `<span class="tag">${esc(tag)}</span>`).join("")}</p>
-      <div class="agent-grid">
-        <span>Rol</span><strong>${esc(agent.access_info?.role || "-")}</strong>
-        <span>Creador</span><strong>${esc(agent.access_info?.creator_name || agent.access_info?.creator_email || "-")}</strong>
+      <div class="agent-grid persona-grid">
+        <span>Rol</span><strong>${localValue(local.role_title)}</strong>
+        <span>Area o Departamento</span><strong>${localValue(local.department)}</strong>
+        <span>Correo Electronico</span><strong>${localValue(local.contact_email)}</strong>
+        <span>Nro de Contacto</span><strong>${localValue(local.contact_phone)}</strong>
+        <span>Pais</span><strong>${localValue(local.country)}</strong>
+        <span>Sexo</span><strong>${localValue(local.gender)}</strong>
       </div>
-    </a>`).join("");
+    </a>`;
+  }).join("");
   return layout(req, "Dashboard", `
     <section class="page-head">
       <div>
