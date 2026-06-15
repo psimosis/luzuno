@@ -217,7 +217,10 @@ app.get("/callback", async (req, res, next) => {
 app.get("/logout", (req, res) => {
   const idToken = req.session.tokens?.id_token;
   req.session.destroy(() => {
-    const params = new URLSearchParams({ post_logout_redirect_uri: publicUrl });
+    const params = new URLSearchParams({
+      client_id: clientId,
+      post_logout_redirect_uri: publicUrl
+    });
     if (idToken) params.set("id_token_hint", idToken);
     res.redirect(`${logoutUrl}?${params}`);
   });
