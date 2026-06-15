@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import https from "node:https";
 import path from "node:path";
 import express from "express";
 import multer from "multer";
@@ -14,6 +15,9 @@ import { authUrl, hasAdminRole, internalIssuer, listUsers, createUser, deleteUse
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
+const httpsPort = Number(process.env.HTTPS_PORT || 0);
+const tlsCertPath = process.env.TLS_CERT_PATH || "";
+const tlsKeyPath = process.env.TLS_KEY_PATH || "";
 const clientId = process.env.KEYCLOAK_CLIENT_ID || "agents-panel-web";
 const clientSecret = process.env.KEYCLOAK_CLIENT_SECRET;
 const publicUrl = process.env.PUBLIC_URL || "http://192.168.0.115:3000";
@@ -452,3 +456,13 @@ await migrate();
 app.listen(port, () => {
   console.log(`Control Panel listening on ${port}`);
 });
+
+if (httpsPort && tlsCertPath && tlsKeyPath) {
+  const [cert, key] = await Promise.all([
+    fs.readFile(tlsCertPath),
+    fs.readFile(tlsKeyPath)
+  ]);
+  https.createServer({ cert, key }, app).listen(httpsPort, () => {
+    console.log(`Control Panel HTTPS listening on ${httpsPort}`);
+  });
+}

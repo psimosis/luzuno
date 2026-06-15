@@ -47,7 +47,10 @@ services:
       - mysql
       - keycloak
     environment:
-      PUBLIC_URL: http://192.168.0.115:3000
+      PUBLIC_URL: https://192.168.0.115:3443
+      HTTPS_PORT: 3443
+      TLS_CERT_PATH: /app/certs/agents-panel.crt
+      TLS_KEY_PATH: /app/certs/agents-panel.key
       KEYCLOAK_BASE_URL: http://keycloak:8080
       KEYCLOAK_PUBLIC_URL: http://192.168.0.115:8080
       KEYCLOAK_REALM: agents-panel
@@ -73,13 +76,16 @@ services:
       SUPPORT_PERSONA_1_AGENT_ID: ${SUPPORT_PERSONA_1_AGENT_ID}
     ports:
       - "3000:3000"
+      - "3443:3443"
     volumes:
       - agents_panel_data:/app/data
+      - ./certs:/app/certs:ro
     networks:
       - idm_net
 
 networks:
   idm_net:
+    external: true
     name: idm_net
 
 volumes:
