@@ -621,6 +621,15 @@ h2 { margin: 0 0 16px; font-size: 18px; }
   border-color: #88bee0;
   background: #edf8ff;
 }
+.client-list-item.is-search-selected {
+  border-color: #0f2f4a;
+  background: #0f2f4a;
+  box-shadow: 0 10px 24px rgba(15, 47, 74, 0.18);
+}
+.client-list-item.is-search-selected strong,
+.client-list-item.is-search-selected span {
+  color: #ffffff;
+}
 .client-list-item strong {
   color: #173650;
   font-size: 14px;
