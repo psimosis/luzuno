@@ -1,5 +1,6 @@
 const clientSearch = document.getElementById("client-search");
 const clientItems = Array.from(document.querySelectorAll(".client-list-item"));
+let selectedSearchItem = null;
 
 function matchScore(item, query) {
   const searchText = item.dataset.search || "";
@@ -31,4 +32,11 @@ clientSearch?.addEventListener("input", () => {
   if (query && bestItem) {
     bestItem.classList.add("is-search-selected");
   }
+  selectedSearchItem = query ? bestItem : null;
+});
+
+clientSearch?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || !selectedSearchItem) return;
+  event.preventDefault();
+  selectedSearchItem.click();
 });
