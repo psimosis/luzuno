@@ -814,7 +814,7 @@ td span { display: block; color: var(--muted-dark); font-size: 13px; margin-top:
   overflow-x: auto;
 }
 .billing-table {
-  min-width: 1180px;
+  min-width: 920px;
 }
 .billing-table th {
   color: #123957;

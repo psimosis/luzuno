@@ -27,8 +27,10 @@ function rowText(value, max = 52) {
   return textValue.length > max ? `${textValue.slice(0, max - 3)}...` : textValue;
 }
 
-export function generateInvoicePdf({ invoiceNumber, client, rows, totals }) {
+export function generateInvoicePdf({ invoiceNumber, invoiceType = "A", period = {}, client, rows, totals }) {
   const date = new Date().toLocaleDateString("es-AR");
+  const title = invoiceType === "A" ? "FACTURA" : "DOCUMENTO X";
+  const subtitle = invoiceType === "A" ? "" : "NO VALIDO COMO FACTURA";
   const commands = [
     "0.07 0.22 0.34 RG",
     "1.2 w",
@@ -36,10 +38,12 @@ export function generateInvoicePdf({ invoiceNumber, client, rows, totals }) {
     rect(278, 725, 42, 80),
     text(58, 770, "luzuno", 30, "F2"),
     text(58, 750, "Inteligencia Artificial", 10),
-    text(292, 770, "A", 28, "F2"),
-    text(340, 780, "FACTURA", 18, "F2"),
+    text(292, 770, invoiceType, 28, "F2"),
+    text(340, 780, title, 18, "F2"),
+    text(340, 766, subtitle, 9, "F2"),
     text(340, 760, `Comprobante: ${invoiceNumber}`, 10),
     text(340, 744, `Fecha: ${date}`, 10),
+    text(340, 730, `Periodo: ${period.label || "-"}`, 10),
 
     rect(36, 628, 523, 82),
     text(50, 690, "Datos del Cliente", 12, "F2"),
@@ -54,18 +58,18 @@ export function generateInvoicePdf({ invoiceNumber, client, rows, totals }) {
     text(50, 590, "Detalle", 12, "F2"),
     line(36, 575, 559, 575),
     text(50, 558, "Descripcion", 9, "F2"),
-    text(326, 558, "Conversaciones", 9, "F2"),
-    text(418, 558, "Duracion media", 9, "F2"),
-    text(510, 558, "Importe", 9, "F2"),
+    text(312, 558, "Minutos", 9, "F2"),
+    text(382, 558, "U$D Min", 9, "F2"),
+    text(482, 558, "Importe", 9, "F2"),
     line(36, 548, 559, 548)
   ];
 
   let y = 530;
   for (const row of rows.slice(0, 18)) {
     commands.push(text(50, y, rowText(`Servicio Anub ${row.agentName}`, 48), 9));
-    commands.push(text(350, y, String(row.conversationCount), 9));
-    commands.push(text(430, y, row.averageDurationLabel, 9));
-    commands.push(text(498, y, money(row.subtotalUsd), 9));
+    commands.push(text(318, y, Number(row.totalMinutes || 0).toFixed(2), 9));
+    commands.push(text(386, y, money(row.billedCostPerMinuteUsd), 9));
+    commands.push(text(482, y, money(row.subtotalUsd), 9));
     commands.push(line(36, y - 9, 559, y - 9));
     y -= 22;
   }

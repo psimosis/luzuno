@@ -38,12 +38,27 @@ export async function migrate() {
     "ALTER TABLE user_settings ADD COLUMN phone VARCHAR(80) NULL",
     "ALTER TABLE user_settings ADD COLUMN contact_person VARCHAR(255) NULL",
     "ALTER TABLE user_settings ADD COLUMN contact_email VARCHAR(255) NULL",
-    "ALTER TABLE user_settings ADD COLUMN margin_percent DECIMAL(8,2) NOT NULL DEFAULT 0"
+    "ALTER TABLE user_settings ADD COLUMN margin_percent DECIMAL(8,2) NOT NULL DEFAULT 0",
+    "ALTER TABLE user_settings ADD COLUMN cost_per_minute_usd DECIMAL(10,4) NOT NULL DEFAULT 0"
   ]) {
     await db.query(statement).catch((error) => {
       if (error.code !== "ER_DUP_FIELDNAME") throw error;
     });
   }
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS billing_invoices (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      user_id VARCHAR(128) NOT NULL,
+      period_year INT NOT NULL,
+      period_month INT NOT NULL,
+      invoice_type VARCHAR(4) NOT NULL,
+      invoice_number VARCHAR(80) NOT NULL,
+      pdf_blob MEDIUMBLOB NOT NULL,
+      snapshot_json JSON NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_final_invoice (user_id, period_year, period_month, invoice_type)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
   await db.query(`
     CREATE TABLE IF NOT EXISTS agent_settings (
       user_id VARCHAR(128) NOT NULL,
@@ -159,15 +174,15 @@ export async function getApiKey(userId) {
 
 export async function listUserSettings() {
   const [rows] = await getPool().query(
-    "SELECT user_id, username, email, company_name, cuit, address, phone, contact_person, contact_email, margin_percent, api_key_last4, updated_at FROM user_settings ORDER BY COALESCE(company_name, username), username"
+    "SELECT user_id, username, email, company_name, cuit, address, phone, contact_person, contact_email, margin_percent, cost_per_minute_usd, api_key_last4, updated_at FROM user_settings ORDER BY COALESCE(company_name, username), username"
   );
   return rows;
 }
 
 export async function saveClientDetails(userId, values) {
   await getPool().execute(
-    `INSERT INTO user_settings (user_id, username, email, company_name, cuit, address, phone, contact_person, contact_email, margin_percent)
-     VALUES (:user_id, :username, :email, :company_name, :cuit, :address, :phone, :contact_person, :contact_email, :margin_percent)
+    `INSERT INTO user_settings (user_id, username, email, company_name, cuit, address, phone, contact_person, contact_email, margin_percent, cost_per_minute_usd)
+     VALUES (:user_id, :username, :email, :company_name, :cuit, :address, :phone, :contact_person, :contact_email, :margin_percent, :cost_per_minute_usd)
      ON DUPLICATE KEY UPDATE username = VALUES(username),
        email = VALUES(email),
        company_name = VALUES(company_name),
@@ -176,7 +191,8 @@ export async function saveClientDetails(userId, values) {
        phone = VALUES(phone),
        contact_person = VALUES(contact_person),
        contact_email = VALUES(contact_email),
-       margin_percent = VALUES(margin_percent)`,
+       margin_percent = VALUES(margin_percent),
+       cost_per_minute_usd = VALUES(cost_per_minute_usd)`,
     {
       user_id: userId,
       username: values.username,
@@ -187,16 +203,52 @@ export async function saveClientDetails(userId, values) {
       phone: values.phone || null,
       contact_person: values.contact_person || null,
       contact_email: values.contact_email || null,
-      margin_percent: Number(values.margin_percent || 0)
+      margin_percent: Number(values.margin_percent || 0),
+      cost_per_minute_usd: Number(values.cost_per_minute_usd || 0)
     }
   );
 }
 
-export async function saveClientMargin(userId, marginPercent) {
+export async function saveClientBillingSettings(userId, values) {
   await getPool().execute(
-    "UPDATE user_settings SET margin_percent = ? WHERE user_id = ?",
-    [Number(marginPercent || 0), userId]
+    "UPDATE user_settings SET margin_percent = ?, cost_per_minute_usd = ? WHERE user_id = ?",
+    [Number(values.margin_percent || 0), Number(values.cost_per_minute_usd || 0), userId]
   );
+}
+
+export async function listBillingInvoices(userId) {
+  const [rows] = await getPool().execute(
+    `SELECT id, user_id, period_year, period_month, invoice_type, invoice_number, created_at
+     FROM billing_invoices WHERE user_id = ?
+     ORDER BY period_year DESC, period_month DESC, created_at DESC`,
+    [userId]
+  );
+  return rows;
+}
+
+export async function getBillingInvoice(id, userId) {
+  const [rows] = await getPool().execute(
+    "SELECT * FROM billing_invoices WHERE id = ? AND user_id = ?",
+    [id, userId]
+  );
+  return rows[0] || null;
+}
+
+export async function findBillingInvoice(userId, year, month, type = "A") {
+  const [rows] = await getPool().execute(
+    "SELECT * FROM billing_invoices WHERE user_id = ? AND period_year = ? AND period_month = ? AND invoice_type = ?",
+    [userId, year, month, type]
+  );
+  return rows[0] || null;
+}
+
+export async function createBillingInvoice({ userId, year, month, type, invoiceNumber, pdf, snapshot }) {
+  await getPool().execute(
+    `INSERT INTO billing_invoices (user_id, period_year, period_month, invoice_type, invoice_number, pdf_blob, snapshot_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [userId, year, month, type, invoiceNumber, pdf, JSON.stringify(snapshot || {})]
+  );
+  return findBillingInvoice(userId, year, month, type);
 }
 
 export async function saveAgentSettings(userId, agentId, values) {

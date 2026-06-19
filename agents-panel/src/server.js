@@ -6,7 +6,7 @@ import express from "express";
 import multer from "multer";
 import session from "express-session";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { migrate, upsertUserProfile, getUserSettings, getApiKey, setApiKeyForUser, listUserSettings, saveAgentSettings, getAgentSettings, listAgentSettingsForUser, saveAgentProfileImage, saveAgentPersonaDetails, saveAgentVoice, saveClientDetails, saveClientMargin } from "./db.js";
+import { migrate, upsertUserProfile, getUserSettings, getApiKey, setApiKeyForUser, listUserSettings, saveAgentSettings, getAgentSettings, listAgentSettingsForUser, saveAgentProfileImage, saveAgentPersonaDetails, saveAgentVoice, saveClientDetails, saveClientBillingSettings, listBillingInvoices, getBillingInvoice, findBillingInvoice, createBillingInvoice } from "./db.js";
 import { listAgents, getAgent, updateAgent, publishAgent, listVoices, filterVoices, createVoicePreview, listAllConversationsForAgent } from "./elevenlabs.js";
 import { generateInvoicePdf } from "./invoice-pdf.js";
 import { generateProfileImage } from "./openai-images.js";
@@ -155,26 +155,6 @@ function publicVoice(voice) {
   };
 }
 
-function numericCost(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
-}
-
-function conversationLlmCost(conversation) {
-  const candidates = [
-    conversation.llm_cost_usd,
-    conversation.llm_cost,
-    conversation.cost_usd,
-    conversation.cost,
-    conversation.metadata?.llm_cost_usd,
-    conversation.metadata?.llm_cost,
-    conversation.metadata?.cost_usd,
-    conversation.analysis?.llm_cost_usd,
-    conversation.analysis?.llm_cost
-  ];
-  return candidates.reduce((sum, value) => sum + numericCost(value), 0);
-}
-
 function durationLabel(seconds) {
   const value = Number(seconds || 0);
   const minutes = Math.floor(value / 60);
@@ -182,35 +162,65 @@ function durationLabel(seconds) {
   return `${minutes}m ${remainingSeconds}s`;
 }
 
+function currentBillingPeriod() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const start = new Date(year, month - 1, 1, 0, 0, 0, 0);
+  const end = new Date(year, month, 1, 0, 0, 0, 0);
+  return {
+    year,
+    month,
+    start,
+    end,
+    startUnix: Math.floor(start.getTime() / 1000),
+    endUnix: Math.floor(end.getTime() / 1000),
+    label: start.toLocaleDateString("es-AR", { month: "long", year: "numeric" }),
+    isClosed: Date.now() >= end.getTime()
+  };
+}
+
+function invoiceNumber(type, period, userId) {
+  return `${type}-${period.year}${String(period.month).padStart(2, "0")}-${userId.slice(0, 6)}`;
+}
+
 async function billingDataForUser(userId) {
   const settings = await getUserSettings(userId);
   const apiKey = await getApiKey(userId);
   const marginPercent = Number(settings?.margin_percent || 0);
-  if (!apiKey) return { settings, rows: [], error: "El cliente no tiene API key de ElevenLabs configurada." };
+  const costPerMinuteUsd = Number(settings?.cost_per_minute_usd || 0);
+  const billedCostPerMinuteUsd = costPerMinuteUsd * (1 + marginPercent / 100);
+  const period = currentBillingPeriod();
+  const invoices = await listBillingInvoices(userId);
+  const finalInvoice = await findBillingInvoice(userId, period.year, period.month, "A");
+  if (!apiKey) return { settings, rows: [], invoices, finalInvoice, period, error: "El cliente no tiene API key de ElevenLabs configurada." };
 
   const agentsData = await listAgents(apiKey, { page_size: "100" });
   const agents = agentsData.agents || [];
   const rows = [];
   for (const agent of agents) {
-    const conversations = await listAllConversationsForAgent(apiKey, agent.agent_id);
+    const conversations = (await listAllConversationsForAgent(apiKey, agent.agent_id))
+      .filter((item) => {
+        const startedAt = Number(item.start_time_unix_secs || item.metadata?.start_time_unix_secs || 0);
+        return startedAt >= period.startUnix && startedAt < period.endUnix;
+      });
     const conversationCount = conversations.length;
     const totalDurationSecs = conversations.reduce((sum, item) => sum + Number(item.call_duration_secs || item.metadata?.call_duration_secs || 0), 0);
-    const llmCostUsd = conversations.reduce((sum, item) => sum + conversationLlmCost(item), 0);
+    const totalMinutes = totalDurationSecs / 60;
     const averageDurationSecs = conversationCount ? totalDurationSecs / conversationCount : 0;
-    const minutes = totalDurationSecs / 60;
-    const llmCostPerMinuteUsd = minutes ? llmCostUsd / minutes : 0;
-    const marginUsd = llmCostUsd * (marginPercent / 100);
-    const subtotalUsd = llmCostUsd + marginUsd;
+    const subtotalUsd = totalMinutes * billedCostPerMinuteUsd;
     rows.push({
       agentId: agent.agent_id,
       agentName: agent.name || agent.agent_id,
       conversationCount,
+      totalDurationSecs,
+      totalMinutes,
+      totalMinutesLabel: `${totalMinutes.toFixed(2)} min`,
       averageDurationSecs,
       averageDurationLabel: durationLabel(averageDurationSecs),
-      llmCostUsd,
-      llmCostPerMinuteUsd,
+      costPerMinuteUsd,
       marginPercent,
-      marginUsd,
+      billedCostPerMinuteUsd,
       subtotalUsd,
       ivaUsd: subtotalUsd * 0.21,
       igUsd: subtotalUsd * 0.035,
@@ -220,16 +230,17 @@ async function billingDataForUser(userId) {
 
   const totals = rows.reduce((acc, row) => ({
     conversationCount: acc.conversationCount + row.conversationCount,
-    llmCostUsd: acc.llmCostUsd + row.llmCostUsd,
-    marginUsd: acc.marginUsd + row.marginUsd,
+    totalMinutes: acc.totalMinutes + row.totalMinutes,
     subtotalUsd: acc.subtotalUsd + row.subtotalUsd,
     ivaUsd: acc.ivaUsd + row.ivaUsd,
     igUsd: acc.igUsd + row.igUsd,
     totalUsd: acc.totalUsd + row.totalUsd
-  }), { conversationCount: 0, llmCostUsd: 0, marginUsd: 0, subtotalUsd: 0, ivaUsd: 0, igUsd: 0, totalUsd: 0 });
+  }), { conversationCount: 0, totalMinutes: 0, subtotalUsd: 0, ivaUsd: 0, igUsd: 0, totalUsd: 0 });
   totals.marginPercent = marginPercent;
+  totals.costPerMinuteUsd = costPerMinuteUsd;
+  totals.billedCostPerMinuteUsd = billedCostPerMinuteUsd;
 
-  return { settings, rows, totals };
+  return { settings, rows, totals, invoices, finalInvoice, period };
 }
 
 function profileStylePrompt(style) {
@@ -620,11 +631,15 @@ app.get("/admin", requireAdmin, async (req, res) => {
   }
 });
 
-app.get("/admin/billing", requireAdmin, async (req, res) => {
+app.get("/admin/billing", requireAuth, (req, res) => {
+  res.redirect(`/billing${req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""}`);
+});
+
+app.get("/billing", requireAuth, async (req, res) => {
   try {
-    const users = await listUsers();
-    const localUsers = await listUserSettings();
+    const users = hasAdminRole(req.session.user) ? await listUsers() : [];
     const selectedUserId = targetUserId(req);
+    const localUsers = hasAdminRole(req.session.user) ? await listUserSettings() : [await getUserSettings(selectedUserId)].filter(Boolean);
     let billing = { rows: [], totals: {}, settings: null };
     let error = "";
     if (selectedUserId) {
@@ -644,28 +659,76 @@ app.get("/admin/billing", requireAdmin, async (req, res) => {
 app.post("/admin/billing/margin", requireAdmin, async (req, res, next) => {
   try {
     const userId = targetUserId(req);
-    await saveClientMargin(userId, req.body.margin_percent);
-    res.redirect(`/admin/billing${targetUserQuery(req, userId)}`);
+    await saveClientBillingSettings(userId, {
+      margin_percent: req.body.margin_percent,
+      cost_per_minute_usd: req.body.cost_per_minute_usd
+    });
+    res.redirect(`/billing${targetUserQuery(req, userId)}`);
   } catch (error) {
     next(error);
   }
 });
 
-app.get("/admin/billing/invoice.pdf", requireAdmin, async (req, res, next) => {
+app.get("/billing/document.pdf", requireAuth, async (req, res, next) => {
   try {
-    const userId = String(req.query.userId || "");
-    if (!userId) return res.status(400).send("Cliente requerido.");
+    const userId = targetUserId(req);
+    const type = String(req.query.type || "X") === "A" ? "A" : "X";
     const billing = await billingDataForUser(userId);
-    const invoiceNumber = `A-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${userId.slice(0, 6)}`;
+    if (type === "A" && !billing.period.isClosed) return res.status(400).send("El mes en curso aun no cerro. Solo se puede generar documento X.");
+    const existing = type === "A" ? billing.finalInvoice : null;
+    if (existing) {
+      res.setHeader("content-type", "application/pdf");
+      res.setHeader("content-disposition", `inline; filename="factura-${existing.invoice_number}.pdf"`);
+      return res.send(existing.pdf_blob);
+    }
+    const number = invoiceNumber(type, billing.period, userId);
     const pdf = generateInvoicePdf({
-      invoiceNumber,
+      invoiceNumber: number,
+      invoiceType: type,
+      period: billing.period,
       client: billing.settings || {},
       rows: billing.rows,
       totals: billing.totals || {}
     });
+    if (type === "A") {
+      await createBillingInvoice({
+        userId,
+        year: billing.period.year,
+        month: billing.period.month,
+        type,
+        invoiceNumber: number,
+        pdf,
+        snapshot: {
+          period: billing.period,
+          client: {
+            company_name: billing.settings?.company_name,
+            cuit: billing.settings?.cuit,
+            address: billing.settings?.address,
+            contact_person: billing.settings?.contact_person,
+            contact_email: billing.settings?.contact_email,
+            phone: billing.settings?.phone
+          },
+          rows: billing.rows,
+          totals: billing.totals
+        }
+      });
+    }
     res.setHeader("content-type", "application/pdf");
-    res.setHeader("content-disposition", `inline; filename="factura-${invoiceNumber}.pdf"`);
+    res.setHeader("content-disposition", `inline; filename="${type === "A" ? "factura" : "documento-x"}-${number}.pdf"`);
     res.send(pdf);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/billing/invoices/:invoiceId.pdf", requireAuth, async (req, res, next) => {
+  try {
+    const userId = targetUserId(req);
+    const invoice = await getBillingInvoice(req.params.invoiceId, userId);
+    if (!invoice) return res.status(404).send("Factura no encontrada.");
+    res.setHeader("content-type", "application/pdf");
+    res.setHeader("content-disposition", `inline; filename="factura-${invoice.invoice_number}.pdf"`);
+    res.send(invoice.pdf_blob);
   } catch (error) {
     next(error);
   }
@@ -711,7 +774,8 @@ app.post("/clients", requireAdmin, async (req, res, next) => {
       phone: req.body.phone,
       contact_person: req.body.contact_person,
       contact_email: req.body.contact_email,
-      margin_percent: req.body.margin_percent
+      margin_percent: req.body.margin_percent,
+      cost_per_minute_usd: req.body.cost_per_minute_usd
     });
     res.redirect(`/clients/${encodeURIComponent(created.id)}?saved=1`);
   } catch (error) {
@@ -732,7 +796,8 @@ app.post("/clients/:userId", requireAdmin, async (req, res, next) => {
       phone: req.body.phone,
       contact_person: req.body.contact_person,
       contact_email: req.body.contact_email,
-      margin_percent: req.body.margin_percent
+      margin_percent: req.body.margin_percent,
+      cost_per_minute_usd: req.body.cost_per_minute_usd
     });
     if (req.body.password) {
       await resetPassword(req.params.userId, req.body.password);

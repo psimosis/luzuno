@@ -51,7 +51,7 @@ export function layout(req, title, body, options = {}) {
   <header class="topbar">
     <a class="brand" href="/dashboard${selectedQuery}"><img src="/logo-luzuno.png" alt="Luzuno"><span>Panel de Control</span></a>
     <nav>
-      ${user ? `${headerTenantSelector(req, options.adminUsers, options.selectedUserId)}<a href="/dashboard${selectedQuery}">Dashboard</a>${admin ? `<a href="/clients">Clientes</a><a href="/admin">Administracion</a><a href="/admin/billing">Facturacion</a>` : ""}<a href="/support${selectedQuery}">Soporte Tecnico</a><a href="/logout">Salir</a>` : ""}
+      ${user ? `${headerTenantSelector(req, options.adminUsers, options.selectedUserId)}<a href="/dashboard${selectedQuery}">Dashboard</a>${admin ? `<a href="/clients">Clientes</a><a href="/admin">Administracion</a>` : ""}<a href="/billing${selectedQuery}">Facturacion</a><a href="/support${selectedQuery}">Soporte Tecnico</a><a href="/logout">Salir</a>` : ""}
     </nav>
   </header>
   <main>${body}</main>
@@ -417,6 +417,7 @@ export function clientsPage(req, users, localUsers, selectedUserId = "", message
           <label>Persona de Contacto</label><input name="contact_person">
           <label>Correo Electronico</label><input name="contact_email" type="email">
           <label>Margen %</label><input name="margin_percent" type="number" min="0" step="0.01" value="0">
+          <label>u$s Min</label><input name="cost_per_minute_usd" type="number" min="0" step="0.0001" value="0">
           <label>Nombre de Usuario</label><input name="username" required>
           <label>Contraseña</label><input name="password" type="password" required>
           <button class="primary" type="submit">Crear Cliente</button>
@@ -450,6 +451,7 @@ function clientEditForm(client) {
     <label>Persona de Contacto</label><input name="contact_person" value="${esc(client.contact_person || "")}">
     <label>Correo Electronico</label><input name="contact_email" type="email" value="${esc(client.contact_email || client.email || "")}">
     <label>Margen %</label><input name="margin_percent" type="number" min="0" step="0.01" value="${esc(client.margin_percent ?? 0)}">
+    <label>u$s Min</label><input name="cost_per_minute_usd" type="number" min="0" step="0.0001" value="${esc(client.cost_per_minute_usd ?? 0)}">
     <label>Nombre de Usuario</label><input name="username" value="${esc(client.username || "")}" readonly>
     <label>Contraseña</label><input name="password" type="password" placeholder="Dejar vacio para conservar">
     <button class="primary" type="submit">Guardar Cliente</button>
@@ -464,11 +466,8 @@ function billingRows(rows = []) {
   return rows.map((row) => `<tr>
     <td><strong>${esc(row.agentName)}</strong><span>${esc(row.agentId)}</span></td>
     <td>${row.conversationCount}</td>
-    <td>${esc(row.averageDurationLabel)}</td>
-    <td>${money(row.llmCostUsd)}</td>
-    <td>${money(row.llmCostPerMinuteUsd)}</td>
-    <td>${Number(row.marginPercent || 0).toFixed(2)}%</td>
-    <td>${money(row.marginUsd)}</td>
+    <td>${Number(row.totalMinutes || 0).toFixed(2)}</td>
+    <td>${money(row.billedCostPerMinuteUsd)}</td>
     <td>${money(row.subtotalUsd)}</td>
     <td>${money(row.ivaUsd)}</td>
     <td>${money(row.igUsd)}</td>
@@ -476,14 +475,37 @@ function billingRows(rows = []) {
   </tr>`).join("");
 }
 
+function invoiceRows(invoices = [], query = "") {
+  return invoices.map((invoice) => {
+    const period = `${String(invoice.period_month).padStart(2, "0")}/${invoice.period_year}`;
+    const createdAt = invoice.created_at ? new Date(invoice.created_at).toLocaleString("es-AR") : "-";
+    const href = `/billing/invoices/${esc(invoice.id)}.pdf${query}`;
+    return `<tr>
+      <td>${esc(period)}</td>
+      <td>${esc(invoice.invoice_type)}</td>
+      <td>${esc(invoice.invoice_number)}</td>
+      <td>${esc(createdAt)}</td>
+      <td><a class="secondary" href="${href}" target="_blank">Reimprimir</a></td>
+    </tr>`;
+  }).join("");
+}
+
 export function billingPage(req, users, localUsers, selectedUserId = "", billing = {}, error = "") {
+  const isAdmin = hasAdminRole(req.session.user);
   const localById = new Map(localUsers.map((item) => [item.user_id, item]));
   const selectedLocal = localById.get(selectedUserId) || billing.settings || {};
   const totals = billing.totals || {};
-  const invoiceUrl = `/admin/billing/invoice.pdf?userId=${encodeURIComponent(selectedUserId)}`;
+  const query = userQuery(req, selectedUserId);
+  const documentType = billing.period?.isClosed ? "A" : "X";
+  const documentLabel = billing.period?.isClosed
+    ? (billing.finalInvoice ? "Reimprimir Factura" : "Generar Factura")
+    : "Generar Documento X";
+  const invoiceUrl = billing.finalInvoice
+    ? `/billing/invoices/${billing.finalInvoice.id}.pdf${query}`
+    : `/billing/document.pdf${query}${query ? "&" : "?"}type=${documentType}`;
   return layout(req, "Facturacion", `
     <section class="page-head">
-      <div><p class="eyebrow">Administracion</p><h1>Facturacion</h1></div>
+      <div><p class="eyebrow">Facturacion</p><h1>Consumo mensual</h1><p class="meta">${esc(billing.period?.label || "")}</p></div>
     </section>
     ${error ? `<div class="alert">${esc(error)}</div>` : ""}
     <section class="panel billing-toolbar">
@@ -491,39 +513,35 @@ export function billingPage(req, users, localUsers, selectedUserId = "", billing
         <span>Cliente</span>
         <strong>${esc(selectedLocal.company_name || selectedLocal.username || "")}</strong>
       </div>
-      <form method="post" action="/admin/billing/margin" class="inline-form billing-margin-form">
+      ${isAdmin ? `<form method="post" action="/admin/billing/margin" class="inline-form billing-margin-form">
         <input type="hidden" name="userId" value="${esc(selectedUserId)}">
         <label>% Margen</label>
         <input name="margin_percent" type="number" min="0" step="0.01" value="${esc(selectedLocal.margin_percent ?? 0)}">
-        <button class="primary" type="submit">Guardar Margen</button>
-      </form>
-      ${selectedUserId ? `<button class="primary" type="button" data-invoice-url="${esc(invoiceUrl)}">Generar Factura</button>` : ""}
+        <label>u$s Min</label>
+        <input name="cost_per_minute_usd" type="number" min="0" step="0.0001" value="${esc(selectedLocal.cost_per_minute_usd ?? 0)}">
+        <button class="primary" type="submit">Guardar</button>
+      </form>` : ""}
+      ${selectedUserId ? `<button class="primary" type="button" data-invoice-url="${esc(invoiceUrl)}">${documentLabel}</button>` : ""}
     </section>
     <section class="panel billing-table-panel">
-      <h2>Agentes de ElevenLabs</h2>
+      <h2>Consumo temporal del mes</h2>
       <table class="billing-table">
         <thead><tr>
           <th>Agente</th>
           <th>Numero de Conversaciones</th>
-          <th>Duracion media</th>
-          <th>Costo Total de LLM U$D</th>
-          <th>Costo medio de LLM x min. U$D</th>
-          <th>Margen %</th>
-          <th>Margen U$D</th>
-          <th>Subtotal</th>
+          <th>Minutos</th>
+          <th>Costo x minuto</th>
+          <th>Total agente</th>
           <th>IVA 21%</th>
           <th>IG 3,5%</th>
           <th>Total U$D</th>
         </tr></thead>
-        <tbody>${billingRows(billing.rows || []) || `<tr><td colspan="11">No hay datos de facturacion para mostrar.</td></tr>`}</tbody>
+        <tbody>${billingRows(billing.rows || []) || `<tr><td colspan="8">No hay datos de facturacion para mostrar.</td></tr>`}</tbody>
         <tfoot><tr>
           <th>Total</th>
           <th>${totals.conversationCount || 0}</th>
+          <th>${Number(totals.totalMinutes || 0).toFixed(2)}</th>
           <th>-</th>
-          <th>${money(totals.llmCostUsd)}</th>
-          <th>-</th>
-          <th>${Number(totals.marginPercent || 0).toFixed(2)}%</th>
-          <th>${money(totals.marginUsd)}</th>
           <th>${money(totals.subtotalUsd)}</th>
           <th>${money(totals.ivaUsd)}</th>
           <th>${money(totals.igUsd)}</th>
@@ -531,10 +549,16 @@ export function billingPage(req, users, localUsers, selectedUserId = "", billing
         </tr></tfoot>
       </table>
     </section>
+    <section class="panel">
+      <h2>Facturas mensuales</h2>
+      <table><thead><tr><th>Periodo</th><th>Tipo</th><th>Comprobante</th><th>Emitida</th><th>Accion</th></tr></thead>
+        <tbody>${invoiceRows(billing.invoices || [], query) || `<tr><td colspan="5">No hay facturas emitidas.</td></tr>`}</tbody>
+      </table>
+    </section>
     <div class="invoice-modal" id="invoice-modal" aria-hidden="true">
       <div class="invoice-dialog">
         <div class="invoice-dialog-head">
-          <strong>Factura A</strong>
+          <strong>${documentType === "A" ? "Factura A" : "Documento X"}</strong>
           <button class="secondary" type="button" data-invoice-close>Cerrar</button>
         </div>
         <iframe id="invoice-frame" title="Factura PDF"></iframe>
