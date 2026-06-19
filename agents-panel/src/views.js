@@ -550,7 +550,7 @@ export function billingPage(req, users, localUsers, selectedUserId = "", billing
         <form method="post" action="/admin/billing/concepts" class="inline-form billing-concept-form">
           <input type="hidden" name="userId" value="${esc(selectedUserId)}">
           <input name="description" placeholder="Concepto a facturar" required>
-          <input name="amount_usd" type="number" min="0" step="0.0001" value="0.0000" required>
+          <input name="amount_usd" type="number" step="0.0001" value="0.0000" required>
           <button class="primary" type="submit">Agregar concepto</button>
         </form>
         <table class="billing-concepts-table">
