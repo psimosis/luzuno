@@ -41,11 +41,14 @@ docker compose ps
 docker compose logs -f agents-panel
 ```
 
-## URLs por defecto
+## URLs con DHCP
 
-- Panel: `http://192.168.0.115:3000`
-- Keycloak: `http://192.168.0.115:8080`
-- MySQL: `192.168.0.115:3306`
+El panel y Keycloak toman el host desde la URL con la que se accede. Si el servidor recibe una IP por DHCP, usar esa IP:
+
+- Panel HTTPS: `https://<ip-dhcp>:3443`
+- Panel HTTP: `http://<ip-dhcp>:3000`
+- Keycloak: `http://<ip-dhcp>:8080`
+- MySQL: `<ip-dhcp>:3306`
 
 ## Nota de seguridad
 

@@ -11,7 +11,7 @@ import { listAgents, getAgent, updateAgent, publishAgent, listVoices, filterVoic
 import { generateProfileImage } from "./openai-images.js";
 import { adminPage, agentDetail, clientsPage, dashboard, loginPage } from "./views.js";
 import { supportPage } from "./views.js";
-import { authUrl, hasAdminRole, internalIssuer, listUsers, createUser, deleteUser, resetPassword, setUserAdmin, tokenUrl, logoutUrl, oidcIssuer } from "./keycloak.js";
+import { authUrl, hasAdminRole, internalIssuer, listUsers, createUser, deleteUser, resetPassword, setUserAdmin, tokenUrl, logoutUrl, oidcIssuer, requestOidcIssuer } from "./keycloak.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -20,7 +20,7 @@ const tlsCertPath = process.env.TLS_CERT_PATH || "";
 const tlsKeyPath = process.env.TLS_KEY_PATH || "";
 const clientId = process.env.KEYCLOAK_CLIENT_ID || "agents-panel-web";
 const clientSecret = process.env.KEYCLOAK_CLIENT_SECRET;
-const publicUrl = process.env.PUBLIC_URL || "http://192.168.0.115:3000";
+const configuredPublicUrl = process.env.PUBLIC_URL || "auto";
 const jwks = createRemoteJWKSet(new URL(`${internalIssuer}/protocol/openid-connect/certs`));
 const imageDir = process.env.AGENT_IMAGE_DIR || "/app/data/agent-images";
 const upload = multer({
@@ -44,6 +44,16 @@ app.use(session({
   saveUninitialized: false,
   cookie: { httpOnly: true, sameSite: "lax" }
 }));
+
+function publicUrl(req) {
+  if (configuredPublicUrl !== "auto") return configuredPublicUrl;
+  const proto = req.get("x-forwarded-proto") || req.protocol || (req.secure ? "https" : "http");
+  return `${proto}://${req.get("host")}`;
+}
+
+function acceptedIssuers(req) {
+  return Array.from(new Set([requestOidcIssuer(req), oidcIssuer, internalIssuer]));
+}
 
 function requireAuth(req, res, next) {
   if (!req.session.user) return res.redirect("/");
@@ -186,7 +196,7 @@ async function replaceProfileImage(userId, agentId, imageBuffer, extension, prom
   const filename = `${safeSegment(userId)}-${safeSegment(agentId)}.${extension}`;
   const imagePath = path.join(imageDir, filename);
   const local = await getAgentSettings(userId, agentId);
-  const previousPath = local.profile_image_path ? new URL(local.profile_image_path, publicUrl).pathname : "";
+  const previousPath = local.profile_image_path ? new URL(local.profile_image_path, "http://localhost").pathname : "";
   if (previousPath && previousPath.startsWith("/agent-images/") && path.basename(previousPath) !== filename) {
     await fs.unlink(path.join(imageDir, path.basename(previousPath))).catch((error) => {
       if (error.code !== "ENOENT") throw error;
@@ -207,13 +217,13 @@ app.get("/login", (req, res) => {
   req.session.oauth = { state, nonce };
   const params = new URLSearchParams({
     client_id: clientId,
-    redirect_uri: `${publicUrl}/callback`,
+    redirect_uri: `${publicUrl(req)}/callback`,
     response_type: "code",
     scope: "openid email profile",
     state,
     nonce
   });
-  res.redirect(`${authUrl}?${params}`);
+  res.redirect(`${authUrl(req)}?${params}`);
 });
 
 app.get("/callback", async (req, res, next) => {
@@ -224,7 +234,7 @@ app.get("/callback", async (req, res, next) => {
     const body = new URLSearchParams({
       grant_type: "authorization_code",
       code: req.query.code,
-      redirect_uri: `${publicUrl}/callback`,
+      redirect_uri: `${publicUrl(req)}/callback`,
       client_id: clientId,
       client_secret: clientSecret
     });
@@ -236,11 +246,11 @@ app.get("/callback", async (req, res, next) => {
     if (!tokenRes.ok) throw new Error(`Token exchange failed: ${tokenRes.status} ${await tokenRes.text()}`);
     const tokens = await tokenRes.json();
     const { payload: idPayload } = await jwtVerify(tokens.id_token, jwks, {
-      issuer: oidcIssuer,
+      issuer: acceptedIssuers(req),
       audience: clientId
     });
     const { payload: accessPayload } = await jwtVerify(tokens.access_token, jwks, {
-      issuer: oidcIssuer
+      issuer: acceptedIssuers(req)
     });
     const user = {
       ...idPayload,
@@ -258,13 +268,15 @@ app.get("/callback", async (req, res, next) => {
 
 app.get("/logout", (req, res) => {
   const idToken = req.session.tokens?.id_token;
+  const appUrl = publicUrl(req);
+  const kcLogoutUrl = logoutUrl(req);
   req.session.destroy(() => {
     const params = new URLSearchParams({
       client_id: clientId,
-      post_logout_redirect_uri: publicUrl
+      post_logout_redirect_uri: appUrl
     });
     if (idToken) params.set("id_token_hint", idToken);
-    res.redirect(`${logoutUrl}?${params}`);
+    res.redirect(`${kcLogoutUrl}?${params}`);
   });
 });
 

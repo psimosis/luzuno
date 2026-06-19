@@ -1,14 +1,37 @@
 const baseUrl = process.env.KEYCLOAK_BASE_URL || "http://keycloak:8080";
-const publicBaseUrl = process.env.KEYCLOAK_PUBLIC_URL || "http://192.168.0.115:8080";
+const publicBaseUrl = process.env.KEYCLOAK_PUBLIC_URL || "auto";
+const publicPort = process.env.KEYCLOAK_PUBLIC_PORT || "8080";
+const publicProtocol = process.env.KEYCLOAK_PUBLIC_PROTOCOL || "http";
 const realm = process.env.KEYCLOAK_REALM || "agents-panel";
 const adminClientId = process.env.KEYCLOAK_ADMIN_CLIENT_ID || "agents-panel-admin";
 const adminClientSecret = process.env.KEYCLOAK_ADMIN_CLIENT_SECRET;
 
-export const oidcIssuer = `${publicBaseUrl}/realms/${realm}`;
+export const oidcIssuer = `${publicBaseUrl === "auto" ? "http://localhost:8080" : publicBaseUrl}/realms/${realm}`;
 export const internalIssuer = `${baseUrl}/realms/${realm}`;
-export const authUrl = `${publicBaseUrl}/realms/${realm}/protocol/openid-connect/auth`;
 export const tokenUrl = `${baseUrl}/realms/${realm}/protocol/openid-connect/token`;
-export const logoutUrl = `${publicBaseUrl}/realms/${realm}/protocol/openid-connect/logout`;
+
+function requestHostname(req) {
+  const host = req.get("host") || "localhost";
+  const proto = req.get("x-forwarded-proto") || req.protocol || "http";
+  return new URL(`${proto}://${host}`).hostname;
+}
+
+export function publicKeycloakBaseUrl(req) {
+  if (publicBaseUrl !== "auto") return publicBaseUrl;
+  return `${publicProtocol}://${requestHostname(req)}:${publicPort}`;
+}
+
+export function requestOidcIssuer(req) {
+  return `${publicKeycloakBaseUrl(req)}/realms/${realm}`;
+}
+
+export function authUrl(req) {
+  return `${requestOidcIssuer(req)}/protocol/openid-connect/auth`;
+}
+
+export function logoutUrl(req) {
+  return `${requestOidcIssuer(req)}/protocol/openid-connect/logout`;
+}
 
 export function hasAdminRole(user) {
   const roles = user?.realm_access?.roles || [];
