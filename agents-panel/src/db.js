@@ -60,6 +60,16 @@ export async function migrate() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
   await db.query(`
+    CREATE TABLE IF NOT EXISTS billing_concepts (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      user_id VARCHAR(128) NOT NULL,
+      description VARCHAR(255) NOT NULL,
+      amount_usd DECIMAL(12,4) NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_billing_concepts_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await db.query(`
     CREATE TABLE IF NOT EXISTS agent_settings (
       user_id VARCHAR(128) NOT NULL,
       agent_id VARCHAR(128) NOT NULL,
@@ -181,8 +191,8 @@ export async function listUserSettings() {
 
 export async function saveClientDetails(userId, values) {
   await getPool().execute(
-    `INSERT INTO user_settings (user_id, username, email, company_name, cuit, address, phone, contact_person, contact_email, margin_percent, cost_per_minute_usd)
-     VALUES (:user_id, :username, :email, :company_name, :cuit, :address, :phone, :contact_person, :contact_email, :margin_percent, :cost_per_minute_usd)
+    `INSERT INTO user_settings (user_id, username, email, company_name, cuit, address, phone, contact_person, contact_email)
+     VALUES (:user_id, :username, :email, :company_name, :cuit, :address, :phone, :contact_person, :contact_email)
      ON DUPLICATE KEY UPDATE username = VALUES(username),
        email = VALUES(email),
        company_name = VALUES(company_name),
@@ -190,9 +200,7 @@ export async function saveClientDetails(userId, values) {
        address = VALUES(address),
        phone = VALUES(phone),
        contact_person = VALUES(contact_person),
-       contact_email = VALUES(contact_email),
-       margin_percent = VALUES(margin_percent),
-       cost_per_minute_usd = VALUES(cost_per_minute_usd)`,
+       contact_email = VALUES(contact_email)`,
     {
       user_id: userId,
       username: values.username,
@@ -202,9 +210,7 @@ export async function saveClientDetails(userId, values) {
       address: values.address || null,
       phone: values.phone || null,
       contact_person: values.contact_person || null,
-      contact_email: values.contact_email || null,
-      margin_percent: Number(values.margin_percent || 0),
-      cost_per_minute_usd: Number(values.cost_per_minute_usd || 0)
+      contact_email: values.contact_email || null
     }
   );
 }
@@ -213,6 +219,28 @@ export async function saveClientBillingSettings(userId, values) {
   await getPool().execute(
     "UPDATE user_settings SET margin_percent = ?, cost_per_minute_usd = ? WHERE user_id = ?",
     [Number(values.margin_percent || 0), Number(values.cost_per_minute_usd || 0), userId]
+  );
+}
+
+export async function listBillingConcepts(userId) {
+  const [rows] = await getPool().execute(
+    "SELECT id, user_id, description, amount_usd, created_at FROM billing_concepts WHERE user_id = ? ORDER BY created_at ASC, id ASC",
+    [userId]
+  );
+  return rows;
+}
+
+export async function addBillingConcept(userId, description, amountUsd) {
+  await getPool().execute(
+    "INSERT INTO billing_concepts (user_id, description, amount_usd) VALUES (?, ?, ?)",
+    [userId, description, Number(amountUsd || 0)]
+  );
+}
+
+export async function deleteBillingConcept(userId, conceptId) {
+  await getPool().execute(
+    "DELETE FROM billing_concepts WHERE user_id = ? AND id = ?",
+    [userId, conceptId]
   );
 }
 

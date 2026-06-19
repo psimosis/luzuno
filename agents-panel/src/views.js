@@ -416,8 +416,6 @@ export function clientsPage(req, users, localUsers, selectedUserId = "", message
           <label>Telefono</label><input name="phone">
           <label>Persona de Contacto</label><input name="contact_person">
           <label>Correo Electronico</label><input name="contact_email" type="email">
-          <label>Margen %</label><input name="margin_percent" type="number" min="0" step="0.01" value="0">
-          <label>u$s Min</label><input name="cost_per_minute_usd" type="number" min="0" step="0.0001" value="0">
           <label>Nombre de Usuario</label><input name="username" required>
           <label>Contraseña</label><input name="password" type="password" required>
           <button class="primary" type="submit">Crear Cliente</button>
@@ -450,8 +448,6 @@ function clientEditForm(client) {
     <label>Telefono</label><input name="phone" value="${esc(client.phone || "")}">
     <label>Persona de Contacto</label><input name="contact_person" value="${esc(client.contact_person || "")}">
     <label>Correo Electronico</label><input name="contact_email" type="email" value="${esc(client.contact_email || client.email || "")}">
-    <label>Margen %</label><input name="margin_percent" type="number" min="0" step="0.01" value="${esc(client.margin_percent ?? 0)}">
-    <label>u$s Min</label><input name="cost_per_minute_usd" type="number" min="0" step="0.0001" value="${esc(client.cost_per_minute_usd ?? 0)}">
     <label>Nombre de Usuario</label><input name="username" value="${esc(client.username || "")}" readonly>
     <label>Contraseña</label><input name="password" type="password" placeholder="Dejar vacio para conservar">
     <button class="primary" type="submit">Guardar Cliente</button>
@@ -459,19 +455,43 @@ function clientEditForm(client) {
 }
 
 function money(value) {
-  return `U$D ${Number(value || 0).toFixed(2)}`;
+  return `U$D ${Number(value || 0).toFixed(4)}`;
+}
+
+function decimal4(value) {
+  return Number(value || 0).toFixed(4);
 }
 
 function billingRows(rows = []) {
   return rows.map((row) => `<tr>
     <td><strong>${esc(row.agentName)}</strong><span>${esc(row.agentId)}</span></td>
     <td>${row.conversationCount}</td>
-    <td>${Number(row.totalMinutes || 0).toFixed(2)}</td>
+    <td>${decimal4(row.totalMinutes)}</td>
     <td>${money(row.billedCostPerMinuteUsd)}</td>
     <td>${money(row.subtotalUsd)}</td>
     <td>${money(row.ivaUsd)}</td>
     <td>${money(row.igUsd)}</td>
     <td>${money(row.totalUsd)}</td>
+  </tr>`).join("");
+}
+
+function billingConceptRows(concepts = [], selectedUserId = "") {
+  return concepts.map((concept) => `<tr>
+    <td>${esc(concept.description)}</td>
+    <td>${money(concept.amount_usd)}</td>
+    <td>
+      <form method="post" action="/admin/billing/concepts/${esc(concept.id)}/delete" class="inline-form">
+        <input type="hidden" name="userId" value="${esc(selectedUserId)}">
+        <button class="danger" type="submit">Eliminar</button>
+      </form>
+    </td>
+  </tr>`).join("");
+}
+
+function conceptBillingRows(concepts = []) {
+  return concepts.map((concept) => `<tr>
+    <td>${esc(concept.description)}</td>
+    <td>${money(concept.amount_usd)}</td>
   </tr>`).join("");
 }
 
@@ -513,16 +533,32 @@ export function billingPage(req, users, localUsers, selectedUserId = "", billing
         <span>Cliente</span>
         <strong>${esc(selectedLocal.company_name || selectedLocal.username || "")}</strong>
       </div>
-      ${isAdmin ? `<form method="post" action="/admin/billing/margin" class="inline-form billing-margin-form">
-        <input type="hidden" name="userId" value="${esc(selectedUserId)}">
-        <label>% Margen</label>
-        <input name="margin_percent" type="number" min="0" step="0.01" value="${esc(selectedLocal.margin_percent ?? 0)}">
-        <label>u$s Min</label>
-        <input name="cost_per_minute_usd" type="number" min="0" step="0.0001" value="${esc(selectedLocal.cost_per_minute_usd ?? 0)}">
-        <button class="primary" type="submit">Guardar</button>
-      </form>` : ""}
       ${selectedUserId ? `<button class="primary" type="button" data-invoice-url="${esc(invoiceUrl)}">${documentLabel}</button>` : ""}
     </section>
+    ${isAdmin ? `<section class="panel billing-params">
+      <h2>${lineIcon("data")}Parametros de Facturacion</h2>
+      <form method="post" action="/admin/billing/margin" class="inline-form billing-margin-form">
+        <input type="hidden" name="userId" value="${esc(selectedUserId)}">
+        <label>% Margen</label>
+        <input name="margin_percent" type="number" min="0" step="0.0001" value="${esc(decimal4(selectedLocal.margin_percent))}">
+        <label>u$s Min</label>
+        <input name="cost_per_minute_usd" type="number" min="0" step="0.0001" value="${esc(decimal4(selectedLocal.cost_per_minute_usd))}">
+        <button class="primary" type="submit">Guardar</button>
+      </form>
+      <div class="billing-concepts-admin">
+        <h3>Conceptos adicionales</h3>
+        <form method="post" action="/admin/billing/concepts" class="inline-form billing-concept-form">
+          <input type="hidden" name="userId" value="${esc(selectedUserId)}">
+          <input name="description" placeholder="Concepto a facturar" required>
+          <input name="amount_usd" type="number" min="0" step="0.0001" value="0.0000" required>
+          <button class="primary" type="submit">Agregar concepto</button>
+        </form>
+        <table class="billing-concepts-table">
+          <thead><tr><th>Concepto</th><th>Importe</th><th>Accion</th></tr></thead>
+          <tbody>${billingConceptRows(billing.concepts || [], selectedUserId) || `<tr><td colspan="3">No hay conceptos adicionales.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </section>` : ""}
     <section class="panel billing-table-panel">
       <h2>Consumo temporal del mes</h2>
       <table class="billing-table">
@@ -540,14 +576,33 @@ export function billingPage(req, users, localUsers, selectedUserId = "", billing
         <tfoot><tr>
           <th>Total</th>
           <th>${totals.conversationCount || 0}</th>
-          <th>${Number(totals.totalMinutes || 0).toFixed(2)}</th>
+          <th>${decimal4(totals.totalMinutes)}</th>
           <th>-</th>
-          <th>${money(totals.subtotalUsd)}</th>
+          <th>${money(totals.usageSubtotalUsd ?? totals.subtotalUsd)}</th>
           <th>${money(totals.ivaUsd)}</th>
           <th>${money(totals.igUsd)}</th>
           <th>${money(totals.totalUsd)}</th>
         </tr></tfoot>
       </table>
+    </section>
+    <section class="panel billing-table-panel">
+      <h2>Conceptos a facturar</h2>
+      <table class="billing-table">
+        <thead><tr><th>Concepto</th><th>Importe</th></tr></thead>
+        <tbody>${conceptBillingRows(billing.concepts || []) || `<tr><td colspan="2">No hay conceptos adicionales para este cliente.</td></tr>`}</tbody>
+        <tfoot><tr><th>Subtotal conceptos</th><th>${money(totals.conceptsSubtotalUsd)}</th></tr></tfoot>
+      </table>
+    </section>
+    <section class="panel billing-totals">
+      <h2>Totales</h2>
+      <dl class="details">
+        <dt>Subtotal consumos</dt><dd>${money(totals.usageSubtotalUsd)}</dd>
+        <dt>Subtotal conceptos</dt><dd>${money(totals.conceptsSubtotalUsd)}</dd>
+        <dt>Subtotal</dt><dd>${money(totals.subtotalUsd)}</dd>
+        <dt>IVA 21%</dt><dd>${money(totals.ivaUsd)}</dd>
+        <dt>IG 3,5%</dt><dd>${money(totals.igUsd)}</dd>
+        <dt>Total U$D</dt><dd>${money(totals.totalUsd)}</dd>
+      </dl>
     </section>
     <section class="panel">
       <h2>Facturas mensuales</h2>

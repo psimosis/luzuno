@@ -810,6 +810,29 @@ td span { display: block; color: var(--muted-dark); font-size: 13px; margin-top:
   color: var(--muted-dark);
   font-size: 13px;
 }
+.billing-params {
+  display: grid;
+  gap: 16px;
+}
+.billing-params h3 {
+  margin: 4px 0 10px;
+  color: #123957;
+  font-size: 15px;
+}
+.billing-concept-form input[name="description"] {
+  width: min(360px, 100%);
+}
+.billing-concept-form input[name="amount_usd"],
+.billing-concepts-table td:nth-child(2),
+.billing-concepts-table th:nth-child(2) {
+  width: 160px;
+}
+.billing-concepts-table {
+  margin-top: 8px;
+}
+.billing-totals .details {
+  max-width: 520px;
+}
 .billing-table-panel {
   overflow-x: auto;
 }

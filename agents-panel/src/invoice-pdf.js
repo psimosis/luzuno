@@ -1,5 +1,5 @@
 function money(value) {
-  return `USD ${Number(value || 0).toFixed(2)}`;
+  return `USD ${Number(value || 0).toFixed(4)}`;
 }
 
 function safe(value) {
@@ -27,7 +27,7 @@ function rowText(value, max = 52) {
   return textValue.length > max ? `${textValue.slice(0, max - 3)}...` : textValue;
 }
 
-export function generateInvoicePdf({ invoiceNumber, invoiceType = "A", period = {}, client, rows, totals }) {
+export function generateInvoicePdf({ invoiceNumber, invoiceType = "A", period = {}, client, rows = [], concepts = [], totals = {} }) {
   const date = new Date().toLocaleDateString("es-AR");
   const title = invoiceType === "A" ? "FACTURA" : "DOCUMENTO X";
   const subtitle = invoiceType === "A" ? "" : "NO VALIDO COMO FACTURA";
@@ -65,15 +65,30 @@ export function generateInvoicePdf({ invoiceNumber, invoiceType = "A", period = 
   ];
 
   let y = 530;
-  for (const row of rows.slice(0, 18)) {
-    commands.push(text(50, y, rowText(`Servicio Anub ${row.agentName}`, 48), 9));
-    commands.push(text(318, y, Number(row.totalMinutes || 0).toFixed(2), 9));
-    commands.push(text(386, y, money(row.billedCostPerMinuteUsd), 9));
-    commands.push(text(482, y, money(row.subtotalUsd), 9));
+  const detailRows = [
+    ...rows.map((row) => ({
+      description: `Servicio Anub ${row.agentName}`,
+      minutes: Number(row.totalMinutes || 0).toFixed(4),
+      rate: money(row.billedCostPerMinuteUsd),
+      amount: money(row.subtotalUsd)
+    })),
+    ...concepts.map((concept) => ({
+      description: concept.description,
+      minutes: "-",
+      rate: "-",
+      amount: money(concept.amount_usd)
+    }))
+  ];
+
+  for (const row of detailRows.slice(0, 18)) {
+    commands.push(text(50, y, rowText(row.description, 48), 9));
+    commands.push(text(318, y, row.minutes, 9));
+    commands.push(text(386, y, row.rate, 9));
+    commands.push(text(482, y, row.amount, 9));
     commands.push(line(36, y - 9, 559, y - 9));
     y -= 22;
   }
-  if (!rows.length) {
+  if (!detailRows.length) {
     commands.push(text(50, y, "Sin consumos para facturar.", 10));
   }
 

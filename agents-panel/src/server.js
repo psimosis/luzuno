@@ -6,7 +6,7 @@ import express from "express";
 import multer from "multer";
 import session from "express-session";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { migrate, upsertUserProfile, getUserSettings, getApiKey, setApiKeyForUser, listUserSettings, saveAgentSettings, getAgentSettings, listAgentSettingsForUser, saveAgentProfileImage, saveAgentPersonaDetails, saveAgentVoice, saveClientDetails, saveClientBillingSettings, listBillingInvoices, getBillingInvoice, findBillingInvoice, createBillingInvoice } from "./db.js";
+import { migrate, upsertUserProfile, getUserSettings, getApiKey, setApiKeyForUser, listUserSettings, saveAgentSettings, getAgentSettings, listAgentSettingsForUser, saveAgentProfileImage, saveAgentPersonaDetails, saveAgentVoice, saveClientDetails, saveClientBillingSettings, listBillingConcepts, addBillingConcept, deleteBillingConcept, listBillingInvoices, getBillingInvoice, findBillingInvoice, createBillingInvoice } from "./db.js";
 import { listAgents, getAgent, updateAgent, publishAgent, listVoices, filterVoices, createVoicePreview, listAllConversationsForAgent } from "./elevenlabs.js";
 import { generateInvoicePdf } from "./invoice-pdf.js";
 import { generateProfileImage } from "./openai-images.js";
@@ -191,9 +191,10 @@ async function billingDataForUser(userId) {
   const costPerMinuteUsd = Number(settings?.cost_per_minute_usd || 0);
   const billedCostPerMinuteUsd = costPerMinuteUsd * (1 + marginPercent / 100);
   const period = currentBillingPeriod();
+  const concepts = await listBillingConcepts(userId);
   const invoices = await listBillingInvoices(userId);
   const finalInvoice = await findBillingInvoice(userId, period.year, period.month, "A");
-  if (!apiKey) return { settings, rows: [], invoices, finalInvoice, period, error: "El cliente no tiene API key de ElevenLabs configurada." };
+  if (!apiKey) return { settings, rows: [], concepts, invoices, finalInvoice, period, error: "El cliente no tiene API key de ElevenLabs configurada." };
 
   const agentsData = await listAgents(apiKey, { page_size: "100" });
   const agents = agentsData.agents || [];
@@ -215,7 +216,7 @@ async function billingDataForUser(userId) {
       conversationCount,
       totalDurationSecs,
       totalMinutes,
-      totalMinutesLabel: `${totalMinutes.toFixed(2)} min`,
+      totalMinutesLabel: `${totalMinutes.toFixed(4)} min`,
       averageDurationSecs,
       averageDurationLabel: durationLabel(averageDurationSecs),
       costPerMinuteUsd,
@@ -231,16 +232,18 @@ async function billingDataForUser(userId) {
   const totals = rows.reduce((acc, row) => ({
     conversationCount: acc.conversationCount + row.conversationCount,
     totalMinutes: acc.totalMinutes + row.totalMinutes,
-    subtotalUsd: acc.subtotalUsd + row.subtotalUsd,
-    ivaUsd: acc.ivaUsd + row.ivaUsd,
-    igUsd: acc.igUsd + row.igUsd,
-    totalUsd: acc.totalUsd + row.totalUsd
-  }), { conversationCount: 0, totalMinutes: 0, subtotalUsd: 0, ivaUsd: 0, igUsd: 0, totalUsd: 0 });
+    usageSubtotalUsd: acc.usageSubtotalUsd + row.subtotalUsd
+  }), { conversationCount: 0, totalMinutes: 0, usageSubtotalUsd: 0 });
+  totals.conceptsSubtotalUsd = concepts.reduce((sum, concept) => sum + Number(concept.amount_usd || 0), 0);
+  totals.subtotalUsd = totals.usageSubtotalUsd + totals.conceptsSubtotalUsd;
+  totals.ivaUsd = totals.subtotalUsd * 0.21;
+  totals.igUsd = totals.subtotalUsd * 0.035;
+  totals.totalUsd = totals.subtotalUsd * 1.245;
   totals.marginPercent = marginPercent;
   totals.costPerMinuteUsd = costPerMinuteUsd;
   totals.billedCostPerMinuteUsd = billedCostPerMinuteUsd;
 
-  return { settings, rows, totals, invoices, finalInvoice, period };
+  return { settings, rows, concepts, totals, invoices, finalInvoice, period };
 }
 
 function profileStylePrompt(style) {
@@ -669,6 +672,29 @@ app.post("/admin/billing/margin", requireAdmin, async (req, res, next) => {
   }
 });
 
+app.post("/admin/billing/concepts", requireAdmin, async (req, res, next) => {
+  try {
+    const userId = targetUserId(req);
+    const description = String(req.body.description || "").trim();
+    if (description) {
+      await addBillingConcept(userId, description, req.body.amount_usd);
+    }
+    res.redirect(`/billing${targetUserQuery(req, userId)}`);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/admin/billing/concepts/:conceptId/delete", requireAdmin, async (req, res, next) => {
+  try {
+    const userId = targetUserId(req);
+    await deleteBillingConcept(userId, req.params.conceptId);
+    res.redirect(`/billing${targetUserQuery(req, userId)}`);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/billing/document.pdf", requireAuth, async (req, res, next) => {
   try {
     const userId = targetUserId(req);
@@ -688,6 +714,7 @@ app.get("/billing/document.pdf", requireAuth, async (req, res, next) => {
       period: billing.period,
       client: billing.settings || {},
       rows: billing.rows,
+      concepts: billing.concepts || [],
       totals: billing.totals || {}
     });
     if (type === "A") {
@@ -709,6 +736,7 @@ app.get("/billing/document.pdf", requireAuth, async (req, res, next) => {
             phone: billing.settings?.phone
           },
           rows: billing.rows,
+          concepts: billing.concepts,
           totals: billing.totals
         }
       });
@@ -773,9 +801,7 @@ app.post("/clients", requireAdmin, async (req, res, next) => {
       address: req.body.address,
       phone: req.body.phone,
       contact_person: req.body.contact_person,
-      contact_email: req.body.contact_email,
-      margin_percent: req.body.margin_percent,
-      cost_per_minute_usd: req.body.cost_per_minute_usd
+      contact_email: req.body.contact_email
     });
     res.redirect(`/clients/${encodeURIComponent(created.id)}?saved=1`);
   } catch (error) {
@@ -795,9 +821,7 @@ app.post("/clients/:userId", requireAdmin, async (req, res, next) => {
       address: req.body.address,
       phone: req.body.phone,
       contact_person: req.body.contact_person,
-      contact_email: req.body.contact_email,
-      margin_percent: req.body.margin_percent,
-      cost_per_minute_usd: req.body.cost_per_minute_usd
+      contact_email: req.body.contact_email
     });
     if (req.body.password) {
       await resetPassword(req.params.userId, req.body.password);
