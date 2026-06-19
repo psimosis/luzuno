@@ -134,7 +134,7 @@ export function generateInvoicePdf({ invoiceNumber, invoiceType = "A", period = 
     "1.2 w",
     rect(36, 715, 523, 90),
     rect(278, 715, 42, 90),
-    image(logo.name, 54, 744, 190, 64),
+    image(logo.name, 58, 731, 170, 57),
     text(292, 768, invoiceType, 28, "F2"),
     text(340, 780, title, 18, "F2"),
     text(340, 762, subtitle, 9, "F2"),
