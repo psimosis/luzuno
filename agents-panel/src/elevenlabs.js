@@ -54,6 +54,34 @@ export async function getAgent(apiKey, agentId) {
   return elevenFetch(apiKey, `/v1/convai/agents/${encodeURIComponent(agentId)}`);
 }
 
+export async function listConversations(apiKey, query = {}) {
+  const params = new URLSearchParams({
+    page_size: query.page_size || "100",
+    summary_mode: query.summary_mode || "exclude"
+  });
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== null && value !== "") params.set(key, value);
+  }
+  return elevenFetch(apiKey, `/v1/convai/conversations?${params}`);
+}
+
+export async function listAllConversationsForAgent(apiKey, agentId, { maxPages = 20 } = {}) {
+  const conversations = [];
+  let cursor = "";
+  for (let page = 0; page < maxPages; page += 1) {
+    const data = await listConversations(apiKey, {
+      agent_id: agentId,
+      cursor,
+      page_size: "100",
+      summary_mode: "exclude"
+    });
+    conversations.push(...(data.conversations || []));
+    if (!data.has_more || !data.next_cursor) break;
+    cursor = data.next_cursor;
+  }
+  return conversations;
+}
+
 export async function updateAgent(apiKey, agentId, patch) {
   return elevenFetch(apiKey, `/v1/convai/agents/${encodeURIComponent(agentId)}`, {
     method: "PATCH",

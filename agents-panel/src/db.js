@@ -37,7 +37,8 @@ export async function migrate() {
     "ALTER TABLE user_settings ADD COLUMN address VARCHAR(255) NULL",
     "ALTER TABLE user_settings ADD COLUMN phone VARCHAR(80) NULL",
     "ALTER TABLE user_settings ADD COLUMN contact_person VARCHAR(255) NULL",
-    "ALTER TABLE user_settings ADD COLUMN contact_email VARCHAR(255) NULL"
+    "ALTER TABLE user_settings ADD COLUMN contact_email VARCHAR(255) NULL",
+    "ALTER TABLE user_settings ADD COLUMN margin_percent DECIMAL(8,2) NOT NULL DEFAULT 0"
   ]) {
     await db.query(statement).catch((error) => {
       if (error.code !== "ER_DUP_FIELDNAME") throw error;
@@ -158,15 +159,15 @@ export async function getApiKey(userId) {
 
 export async function listUserSettings() {
   const [rows] = await getPool().query(
-    "SELECT user_id, username, email, company_name, cuit, address, phone, contact_person, contact_email, api_key_last4, updated_at FROM user_settings ORDER BY COALESCE(company_name, username), username"
+    "SELECT user_id, username, email, company_name, cuit, address, phone, contact_person, contact_email, margin_percent, api_key_last4, updated_at FROM user_settings ORDER BY COALESCE(company_name, username), username"
   );
   return rows;
 }
 
 export async function saveClientDetails(userId, values) {
   await getPool().execute(
-    `INSERT INTO user_settings (user_id, username, email, company_name, cuit, address, phone, contact_person, contact_email)
-     VALUES (:user_id, :username, :email, :company_name, :cuit, :address, :phone, :contact_person, :contact_email)
+    `INSERT INTO user_settings (user_id, username, email, company_name, cuit, address, phone, contact_person, contact_email, margin_percent)
+     VALUES (:user_id, :username, :email, :company_name, :cuit, :address, :phone, :contact_person, :contact_email, :margin_percent)
      ON DUPLICATE KEY UPDATE username = VALUES(username),
        email = VALUES(email),
        company_name = VALUES(company_name),
@@ -174,7 +175,8 @@ export async function saveClientDetails(userId, values) {
        address = VALUES(address),
        phone = VALUES(phone),
        contact_person = VALUES(contact_person),
-       contact_email = VALUES(contact_email)`,
+       contact_email = VALUES(contact_email),
+       margin_percent = VALUES(margin_percent)`,
     {
       user_id: userId,
       username: values.username,
@@ -184,7 +186,8 @@ export async function saveClientDetails(userId, values) {
       address: values.address || null,
       phone: values.phone || null,
       contact_person: values.contact_person || null,
-      contact_email: values.contact_email || null
+      contact_email: values.contact_email || null,
+      margin_percent: Number(values.margin_percent || 0)
     }
   );
 }

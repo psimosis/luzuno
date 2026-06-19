@@ -7,9 +7,10 @@ import multer from "multer";
 import session from "express-session";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { migrate, upsertUserProfile, getUserSettings, getApiKey, setApiKeyForUser, listUserSettings, saveAgentSettings, getAgentSettings, listAgentSettingsForUser, saveAgentProfileImage, saveAgentPersonaDetails, saveAgentVoice, saveClientDetails } from "./db.js";
-import { listAgents, getAgent, updateAgent, publishAgent, listVoices, filterVoices, createVoicePreview } from "./elevenlabs.js";
+import { listAgents, getAgent, updateAgent, publishAgent, listVoices, filterVoices, createVoicePreview, listAllConversationsForAgent } from "./elevenlabs.js";
+import { generateInvoicePdf } from "./invoice-pdf.js";
 import { generateProfileImage } from "./openai-images.js";
-import { adminPage, agentDetail, clientsPage, dashboard, loginPage } from "./views.js";
+import { adminPage, agentDetail, billingPage, clientsPage, dashboard, loginPage } from "./views.js";
 import { supportPage } from "./views.js";
 import { authUrl, hasAdminRole, internalIssuer, listUsers, createUser, deleteUser, resetPassword, setUserAdmin, tokenUrl, logoutUrl, oidcIssuer, requestOidcIssuer } from "./keycloak.js";
 
@@ -152,6 +153,83 @@ function publicVoice(voice) {
     labels: voice.labels || {},
     verified_languages: voice.verified_languages || []
   };
+}
+
+function numericCost(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function conversationLlmCost(conversation) {
+  const candidates = [
+    conversation.llm_cost_usd,
+    conversation.llm_cost,
+    conversation.cost_usd,
+    conversation.cost,
+    conversation.metadata?.llm_cost_usd,
+    conversation.metadata?.llm_cost,
+    conversation.metadata?.cost_usd,
+    conversation.analysis?.llm_cost_usd,
+    conversation.analysis?.llm_cost
+  ];
+  return candidates.reduce((sum, value) => sum + numericCost(value), 0);
+}
+
+function durationLabel(seconds) {
+  const value = Number(seconds || 0);
+  const minutes = Math.floor(value / 60);
+  const remainingSeconds = Math.round(value % 60);
+  return `${minutes}m ${remainingSeconds}s`;
+}
+
+async function billingDataForUser(userId) {
+  const settings = await getUserSettings(userId);
+  const apiKey = await getApiKey(userId);
+  const marginPercent = Number(settings?.margin_percent || 0);
+  if (!apiKey) return { settings, rows: [], error: "El cliente no tiene API key de ElevenLabs configurada." };
+
+  const agentsData = await listAgents(apiKey, { page_size: "100" });
+  const agents = agentsData.agents || [];
+  const rows = [];
+  for (const agent of agents) {
+    const conversations = await listAllConversationsForAgent(apiKey, agent.agent_id);
+    const conversationCount = conversations.length;
+    const totalDurationSecs = conversations.reduce((sum, item) => sum + Number(item.call_duration_secs || item.metadata?.call_duration_secs || 0), 0);
+    const llmCostUsd = conversations.reduce((sum, item) => sum + conversationLlmCost(item), 0);
+    const averageDurationSecs = conversationCount ? totalDurationSecs / conversationCount : 0;
+    const minutes = totalDurationSecs / 60;
+    const llmCostPerMinuteUsd = minutes ? llmCostUsd / minutes : 0;
+    const marginUsd = llmCostUsd * (marginPercent / 100);
+    const subtotalUsd = llmCostUsd + marginUsd;
+    rows.push({
+      agentId: agent.agent_id,
+      agentName: agent.name || agent.agent_id,
+      conversationCount,
+      averageDurationSecs,
+      averageDurationLabel: durationLabel(averageDurationSecs),
+      llmCostUsd,
+      llmCostPerMinuteUsd,
+      marginPercent,
+      marginUsd,
+      subtotalUsd,
+      ivaUsd: subtotalUsd * 0.21,
+      igUsd: subtotalUsd * 0.035,
+      totalUsd: subtotalUsd * 1.245
+    });
+  }
+
+  const totals = rows.reduce((acc, row) => ({
+    conversationCount: acc.conversationCount + row.conversationCount,
+    llmCostUsd: acc.llmCostUsd + row.llmCostUsd,
+    marginUsd: acc.marginUsd + row.marginUsd,
+    subtotalUsd: acc.subtotalUsd + row.subtotalUsd,
+    ivaUsd: acc.ivaUsd + row.ivaUsd,
+    igUsd: acc.igUsd + row.igUsd,
+    totalUsd: acc.totalUsd + row.totalUsd
+  }), { conversationCount: 0, llmCostUsd: 0, marginUsd: 0, subtotalUsd: 0, ivaUsd: 0, igUsd: 0, totalUsd: 0 });
+  totals.marginPercent = marginPercent;
+
+  return { settings, rows, totals };
 }
 
 function profileStylePrompt(style) {
@@ -542,6 +620,47 @@ app.get("/admin", requireAdmin, async (req, res) => {
   }
 });
 
+app.get("/admin/billing", requireAdmin, async (req, res) => {
+  try {
+    const users = await listUsers();
+    const localUsers = await listUserSettings();
+    const selectedUserId = req.query.userId || users[0]?.id || "";
+    let billing = { rows: [], totals: {}, settings: null };
+    let error = "";
+    if (selectedUserId) {
+      try {
+        billing = await billingDataForUser(selectedUserId);
+        error = billing.error || "";
+      } catch (err) {
+        error = err.message;
+      }
+    }
+    res.send(billingPage(req, users, localUsers, selectedUserId, billing, error));
+  } catch (error) {
+    res.send(billingPage(req, [], [], "", { rows: [], totals: {}, settings: null }, error.message));
+  }
+});
+
+app.get("/admin/billing/invoice.pdf", requireAdmin, async (req, res, next) => {
+  try {
+    const userId = String(req.query.userId || "");
+    if (!userId) return res.status(400).send("Cliente requerido.");
+    const billing = await billingDataForUser(userId);
+    const invoiceNumber = `A-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${userId.slice(0, 6)}`;
+    const pdf = generateInvoicePdf({
+      invoiceNumber,
+      client: billing.settings || {},
+      rows: billing.rows,
+      totals: billing.totals || {}
+    });
+    res.setHeader("content-type", "application/pdf");
+    res.setHeader("content-disposition", `inline; filename="factura-${invoiceNumber}.pdf"`);
+    res.send(pdf);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/clients", requireAdmin, async (req, res) => {
   try {
     const users = await listUsers();
@@ -581,7 +700,8 @@ app.post("/clients", requireAdmin, async (req, res, next) => {
       address: req.body.address,
       phone: req.body.phone,
       contact_person: req.body.contact_person,
-      contact_email: req.body.contact_email
+      contact_email: req.body.contact_email,
+      margin_percent: req.body.margin_percent
     });
     res.redirect(`/clients/${encodeURIComponent(created.id)}?saved=1`);
   } catch (error) {
@@ -601,7 +721,8 @@ app.post("/clients/:userId", requireAdmin, async (req, res, next) => {
       address: req.body.address,
       phone: req.body.phone,
       contact_person: req.body.contact_person,
-      contact_email: req.body.contact_email
+      contact_email: req.body.contact_email,
+      margin_percent: req.body.margin_percent
     });
     if (req.body.password) {
       await resetPassword(req.params.userId, req.body.password);

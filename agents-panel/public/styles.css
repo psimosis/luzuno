@@ -788,6 +788,80 @@ td span { display: block; color: var(--muted-dark); font-size: 13px; margin-top:
 .inline-form input { width: 210px; }
 .check { display: flex; align-items: center; gap: 8px; }
 .check input { width: auto; }
+.billing-toolbar {
+  display: flex;
+  align-items: end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.billing-client-form {
+  align-items: end;
+}
+.billing-client-form select {
+  min-width: 280px;
+}
+.billing-client-summary {
+  display: grid;
+  gap: 2px;
+  margin-right: auto;
+}
+.billing-client-summary span {
+  color: var(--muted-dark);
+  font-size: 13px;
+}
+.billing-table-panel {
+  overflow-x: auto;
+}
+.billing-table {
+  min-width: 1180px;
+}
+.billing-table th {
+  color: #123957;
+  font-size: 12px;
+}
+.billing-table td,
+.billing-table th {
+  padding: 10px;
+}
+.billing-table tfoot th {
+  background: #eaf4fb;
+  border-bottom: 0;
+}
+.invoice-modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(6, 24, 42, 0.74);
+  z-index: 80;
+}
+.invoice-modal.is-visible {
+  display: flex;
+}
+.invoice-dialog {
+  width: min(980px, 96vw);
+  height: min(760px, 92vh);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+}
+.invoice-dialog-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.invoice-dialog iframe {
+  width: 100%;
+  height: 100%;
+  border: 1px solid #d7e4ef;
+  border-radius: 8px;
+}
 
 @media (max-width: 780px) {
   .topbar { align-items: flex-start; height: auto; padding: 16px; flex-direction: column; }
@@ -795,6 +869,7 @@ td span { display: block; color: var(--muted-dark); font-size: 13px; margin-top:
   nav { flex-wrap: wrap; }
   main { padding: 18px; }
   .page-head, .split, .agent-editor-grid, .support-shell, .clients-layout, .clients-main { display: block; }
+  .billing-toolbar { align-items: stretch; }
   .site-footer { position: static; margin: 0 18px 18px auto; width: fit-content; }
   .header-tenant-selector select { width: 170px; }
   .editor-column { display: block; }

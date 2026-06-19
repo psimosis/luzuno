@@ -51,7 +51,7 @@ export function layout(req, title, body, options = {}) {
   <header class="topbar">
     <a class="brand" href="/dashboard${selectedQuery}"><img src="/logo-luzuno.png" alt="Luzuno"><span>Panel de Control</span></a>
     <nav>
-      ${user ? `${headerTenantSelector(req, options.adminUsers, options.selectedUserId)}<a href="/dashboard${selectedQuery}">Dashboard</a>${admin ? `<a href="/clients">Clientes</a><a href="/admin">Administracion</a>` : ""}<a href="/support${selectedQuery}">Soporte Tecnico</a><a href="/logout">Salir</a>` : ""}
+      ${user ? `${headerTenantSelector(req, options.adminUsers, options.selectedUserId)}<a href="/dashboard${selectedQuery}">Dashboard</a>${admin ? `<a href="/clients">Clientes</a><a href="/admin">Administracion</a><a href="/admin/billing">Facturacion</a>` : ""}<a href="/support${selectedQuery}">Soporte Tecnico</a><a href="/logout">Salir</a>` : ""}
     </nav>
   </header>
   <main>${body}</main>
@@ -368,6 +368,7 @@ export function adminPage(req, users, localUsers, message = "", error = "") {
       <article class="panel">
         <h2>Politica</h2>
         <p class="muted">Los usuarios administran solo el system prompt de sus agentes. Las API keys de ElevenLabs se asignan exclusivamente desde Administracion.</p>
+        <a class="primary" href="/admin/billing">Ir a Facturacion</a>
       </article>
     </section>
     <section class="panel">
@@ -415,6 +416,7 @@ export function clientsPage(req, users, localUsers, selectedUserId = "", message
           <label>Telefono</label><input name="phone">
           <label>Persona de Contacto</label><input name="contact_person">
           <label>Correo Electronico</label><input name="contact_email" type="email">
+          <label>Margen %</label><input name="margin_percent" type="number" min="0" step="0.01" value="0">
           <label>Nombre de Usuario</label><input name="username" required>
           <label>Contraseña</label><input name="password" type="password" required>
           <button class="primary" type="submit">Crear Cliente</button>
@@ -447,10 +449,106 @@ function clientEditForm(client) {
     <label>Telefono</label><input name="phone" value="${esc(client.phone || "")}">
     <label>Persona de Contacto</label><input name="contact_person" value="${esc(client.contact_person || "")}">
     <label>Correo Electronico</label><input name="contact_email" type="email" value="${esc(client.contact_email || client.email || "")}">
+    <label>Margen %</label><input name="margin_percent" type="number" min="0" step="0.01" value="${esc(client.margin_percent ?? 0)}">
     <label>Nombre de Usuario</label><input name="username" value="${esc(client.username || "")}" readonly>
     <label>Contraseña</label><input name="password" type="password" placeholder="Dejar vacio para conservar">
     <button class="primary" type="submit">Guardar Cliente</button>
   </form>`;
+}
+
+function money(value) {
+  return `U$D ${Number(value || 0).toFixed(2)}`;
+}
+
+function billingUserOptions(users, localById, selectedUserId) {
+  return users.map((user) => {
+    const local = localById.get(user.id) || {};
+    const label = local.company_name || (user.username === "panel-admin" ? "Luzuno" : user.username);
+    return `<option value="${esc(user.id)}" ${user.id === selectedUserId ? "selected" : ""}>${esc(label)} (${esc(user.username || "")})</option>`;
+  }).join("");
+}
+
+function billingRows(rows = []) {
+  return rows.map((row) => `<tr>
+    <td><strong>${esc(row.agentName)}</strong><span>${esc(row.agentId)}</span></td>
+    <td>${row.conversationCount}</td>
+    <td>${esc(row.averageDurationLabel)}</td>
+    <td>${money(row.llmCostUsd)}</td>
+    <td>${money(row.llmCostPerMinuteUsd)}</td>
+    <td>${Number(row.marginPercent || 0).toFixed(2)}%</td>
+    <td>${money(row.marginUsd)}</td>
+    <td>${money(row.subtotalUsd)}</td>
+    <td>${money(row.ivaUsd)}</td>
+    <td>${money(row.igUsd)}</td>
+    <td>${money(row.totalUsd)}</td>
+  </tr>`).join("");
+}
+
+export function billingPage(req, users, localUsers, selectedUserId = "", billing = {}, error = "") {
+  const localById = new Map(localUsers.map((item) => [item.user_id, item]));
+  const selectedLocal = localById.get(selectedUserId) || billing.settings || {};
+  const totals = billing.totals || {};
+  const invoiceUrl = `/admin/billing/invoice.pdf?userId=${encodeURIComponent(selectedUserId)}`;
+  return layout(req, "Facturacion", `
+    <section class="page-head">
+      <div><p class="eyebrow">Administracion</p><h1>Facturacion</h1></div>
+    </section>
+    ${error ? `<div class="alert">${esc(error)}</div>` : ""}
+    <section class="panel billing-toolbar">
+      <form method="get" action="/admin/billing" class="inline-form billing-client-form">
+        <label>Cliente</label>
+        <select name="userId" onchange="this.form.submit()">${billingUserOptions(users, localById, selectedUserId)}</select>
+      </form>
+      <div class="billing-client-summary">
+        <strong>${esc(selectedLocal.company_name || selectedLocal.username || "")}</strong>
+        <span>Margen: ${Number(selectedLocal.margin_percent || 0).toFixed(2)}%</span>
+      </div>
+      ${selectedUserId ? `<button class="primary" type="button" data-invoice-url="${esc(invoiceUrl)}">Generar Factura</button>` : ""}
+    </section>
+    <section class="panel billing-table-panel">
+      <h2>Agentes de ElevenLabs</h2>
+      <table class="billing-table">
+        <thead><tr>
+          <th>Agente</th>
+          <th>Numero de Conversaciones</th>
+          <th>Duracion media</th>
+          <th>Costo Total de LLM U$D</th>
+          <th>Costo medio de LLM x min. U$D</th>
+          <th>Margen %</th>
+          <th>Margen U$D</th>
+          <th>Subtotal</th>
+          <th>IVA 21%</th>
+          <th>IG 3,5%</th>
+          <th>Total U$D</th>
+        </tr></thead>
+        <tbody>${billingRows(billing.rows || []) || `<tr><td colspan="11">No hay datos de facturacion para mostrar.</td></tr>`}</tbody>
+        <tfoot><tr>
+          <th>Total</th>
+          <th>${totals.conversationCount || 0}</th>
+          <th>-</th>
+          <th>${money(totals.llmCostUsd)}</th>
+          <th>-</th>
+          <th>${Number(totals.marginPercent || 0).toFixed(2)}%</th>
+          <th>${money(totals.marginUsd)}</th>
+          <th>${money(totals.subtotalUsd)}</th>
+          <th>${money(totals.ivaUsd)}</th>
+          <th>${money(totals.igUsd)}</th>
+          <th>${money(totals.totalUsd)}</th>
+        </tr></tfoot>
+      </table>
+    </section>
+    <div class="invoice-modal" id="invoice-modal" aria-hidden="true">
+      <div class="invoice-dialog">
+        <div class="invoice-dialog-head">
+          <strong>Factura A</strong>
+          <button class="secondary" type="button" data-invoice-close>Cerrar</button>
+        </div>
+        <iframe id="invoice-frame" title="Factura PDF"></iframe>
+        <a id="invoice-download" class="primary" href="${esc(invoiceUrl)}" download>Descargar PDF</a>
+      </div>
+    </div>
+    <script src="/billing.js"></script>
+  `, { adminUsers: users, selectedUserId, clientProfile: selectedLocal || req.res?.locals?.clientProfile });
 }
 
 function userRows(users) {
