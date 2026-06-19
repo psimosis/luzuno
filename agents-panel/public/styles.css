@@ -794,11 +794,12 @@ td span { display: block; color: var(--muted-dark); font-size: 13px; margin-top:
   gap: 16px;
   flex-wrap: wrap;
 }
-.billing-client-form {
+.billing-client-form,
+.billing-margin-form {
   align-items: end;
 }
-.billing-client-form select {
-  min-width: 280px;
+.billing-margin-form input {
+  width: 140px;
 }
 .billing-client-summary {
   display: grid;

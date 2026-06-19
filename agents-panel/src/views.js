@@ -20,7 +20,7 @@ function currentSystemPrompt(agent) {
 
 function headerTenantSelector(req, adminUsers = [], selectedUserId = "") {
   if (!hasAdminRole(req.session.user) || !adminUsers.length) return "";
-  return `<form class="header-tenant-selector" method="get" action="/dashboard">
+  return `<form class="header-tenant-selector" method="get" action="${esc(req.path || "/dashboard")}">
     <select name="userId" onchange="this.form.submit()">${adminUserOptions(adminUsers, selectedUserId)}</select>
   </form>`;
 }
@@ -460,14 +460,6 @@ function money(value) {
   return `U$D ${Number(value || 0).toFixed(2)}`;
 }
 
-function billingUserOptions(users, localById, selectedUserId) {
-  return users.map((user) => {
-    const local = localById.get(user.id) || {};
-    const label = local.company_name || (user.username === "panel-admin" ? "Luzuno" : user.username);
-    return `<option value="${esc(user.id)}" ${user.id === selectedUserId ? "selected" : ""}>${esc(label)} (${esc(user.username || "")})</option>`;
-  }).join("");
-}
-
 function billingRows(rows = []) {
   return rows.map((row) => `<tr>
     <td><strong>${esc(row.agentName)}</strong><span>${esc(row.agentId)}</span></td>
@@ -495,14 +487,16 @@ export function billingPage(req, users, localUsers, selectedUserId = "", billing
     </section>
     ${error ? `<div class="alert">${esc(error)}</div>` : ""}
     <section class="panel billing-toolbar">
-      <form method="get" action="/admin/billing" class="inline-form billing-client-form">
-        <label>Cliente</label>
-        <select name="userId" onchange="this.form.submit()">${billingUserOptions(users, localById, selectedUserId)}</select>
-      </form>
       <div class="billing-client-summary">
+        <span>Cliente</span>
         <strong>${esc(selectedLocal.company_name || selectedLocal.username || "")}</strong>
-        <span>Margen: ${Number(selectedLocal.margin_percent || 0).toFixed(2)}%</span>
       </div>
+      <form method="post" action="/admin/billing/margin" class="inline-form billing-margin-form">
+        <input type="hidden" name="userId" value="${esc(selectedUserId)}">
+        <label>% Margen</label>
+        <input name="margin_percent" type="number" min="0" step="0.01" value="${esc(selectedLocal.margin_percent ?? 0)}">
+        <button class="primary" type="submit">Guardar Margen</button>
+      </form>
       ${selectedUserId ? `<button class="primary" type="button" data-invoice-url="${esc(invoiceUrl)}">Generar Factura</button>` : ""}
     </section>
     <section class="panel billing-table-panel">

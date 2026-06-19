@@ -6,7 +6,7 @@ import express from "express";
 import multer from "multer";
 import session from "express-session";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { migrate, upsertUserProfile, getUserSettings, getApiKey, setApiKeyForUser, listUserSettings, saveAgentSettings, getAgentSettings, listAgentSettingsForUser, saveAgentProfileImage, saveAgentPersonaDetails, saveAgentVoice, saveClientDetails } from "./db.js";
+import { migrate, upsertUserProfile, getUserSettings, getApiKey, setApiKeyForUser, listUserSettings, saveAgentSettings, getAgentSettings, listAgentSettingsForUser, saveAgentProfileImage, saveAgentPersonaDetails, saveAgentVoice, saveClientDetails, saveClientMargin } from "./db.js";
 import { listAgents, getAgent, updateAgent, publishAgent, listVoices, filterVoices, createVoicePreview, listAllConversationsForAgent } from "./elevenlabs.js";
 import { generateInvoicePdf } from "./invoice-pdf.js";
 import { generateProfileImage } from "./openai-images.js";
@@ -624,7 +624,7 @@ app.get("/admin/billing", requireAdmin, async (req, res) => {
   try {
     const users = await listUsers();
     const localUsers = await listUserSettings();
-    const selectedUserId = req.query.userId || users[0]?.id || "";
+    const selectedUserId = targetUserId(req);
     let billing = { rows: [], totals: {}, settings: null };
     let error = "";
     if (selectedUserId) {
@@ -638,6 +638,16 @@ app.get("/admin/billing", requireAdmin, async (req, res) => {
     res.send(billingPage(req, users, localUsers, selectedUserId, billing, error));
   } catch (error) {
     res.send(billingPage(req, [], [], "", { rows: [], totals: {}, settings: null }, error.message));
+  }
+});
+
+app.post("/admin/billing/margin", requireAdmin, async (req, res, next) => {
+  try {
+    const userId = targetUserId(req);
+    await saveClientMargin(userId, req.body.margin_percent);
+    res.redirect(`/admin/billing${targetUserQuery(req, userId)}`);
+  } catch (error) {
+    next(error);
   }
 });
 

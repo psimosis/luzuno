@@ -192,6 +192,13 @@ export async function saveClientDetails(userId, values) {
   );
 }
 
+export async function saveClientMargin(userId, marginPercent) {
+  await getPool().execute(
+    "UPDATE user_settings SET margin_percent = ? WHERE user_id = ?",
+    [Number(marginPercent || 0), userId]
+  );
+}
+
 export async function saveAgentSettings(userId, agentId, values) {
   await getPool().execute(
     `INSERT INTO agent_settings (user_id, agent_id, display_name, notes, system_prompt, patch_template, profile_image_path, profile_image_prompt, profile_image_style, role_title, department, contact_email, contact_phone, country, gender, voice_id, voice_name)

@@ -6,65 +6,99 @@ function safe(value) {
   return String(value ?? "").replace(/[\\()]/g, "\\$&").replace(/\r?\n/g, " ");
 }
 
-function pdfText(lines) {
-  const commands = ["BT", "/F1 10 Tf", "50 780 Td"];
-  let first = true;
-  for (const line of lines) {
-    if (!first) commands.push("0 -16 Td");
-    commands.push(`(${safe(line)}) Tj`);
-    first = false;
-  }
-  commands.push("ET");
-  return commands.join("\n");
+function text(x, y, value, size = 10, font = "F1") {
+  return `BT /${font} ${size} Tf ${x} ${y} Td (${safe(value)}) Tj ET`;
+}
+
+function rect(x, y, width, height) {
+  return `${x} ${y} ${width} ${height} re S`;
+}
+
+function line(x1, y1, x2, y2) {
+  return `${x1} ${y1} m ${x2} ${y2} l S`;
 }
 
 function object(id, content) {
   return `${id} 0 obj\n${content}\nendobj\n`;
 }
 
+function rowText(value, max = 52) {
+  const textValue = String(value || "-");
+  return textValue.length > max ? `${textValue.slice(0, max - 3)}...` : textValue;
+}
+
 export function generateInvoicePdf({ invoiceNumber, client, rows, totals }) {
   const date = new Date().toLocaleDateString("es-AR");
-  const lines = [
-    "LUZUNO",
-    "Factura A",
-    `Comprobante: ${invoiceNumber}`,
-    `Fecha: ${date}`,
-    "",
-    "Emisor: Luzuno - Inteligencia Artificial",
-    "Condicion IVA: Responsable Inscripto",
-    "",
-    `Cliente: ${client.company_name || client.username || "-"}`,
-    `CUIT: ${client.cuit || "-"}`,
-    `Direccion: ${client.address || "-"}`,
-    `Contacto: ${client.contact_person || "-"} - ${client.contact_email || client.email || "-"}`,
-    "",
-    "Detalle por Anub",
-    "Agente | Conversaciones | Duracion media | Costo LLM | Margen | Subtotal"
+  const commands = [
+    "0.07 0.22 0.34 RG",
+    "1.2 w",
+    rect(36, 725, 523, 80),
+    rect(278, 725, 42, 80),
+    text(58, 770, "luzuno", 30, "F2"),
+    text(58, 750, "Inteligencia Artificial", 10),
+    text(292, 770, "A", 28, "F2"),
+    text(340, 780, "FACTURA", 18, "F2"),
+    text(340, 760, `Comprobante: ${invoiceNumber}`, 10),
+    text(340, 744, `Fecha: ${date}`, 10),
+
+    rect(36, 628, 523, 82),
+    text(50, 690, "Datos del Cliente", 12, "F2"),
+    text(50, 672, `Razon Social: ${client.company_name || client.username || "-"}`, 10),
+    text(50, 656, `CUIT: ${client.cuit || "-"}`, 10),
+    text(50, 640, `Direccion: ${client.address || "-"}`, 10),
+    text(310, 672, `Contacto: ${client.contact_person || "-"}`, 10),
+    text(310, 656, `Email: ${client.contact_email || client.email || "-"}`, 10),
+    text(310, 640, `Telefono: ${client.phone || "-"}`, 10),
+
+    rect(36, 145, 523, 465),
+    text(50, 590, "Detalle", 12, "F2"),
+    line(36, 575, 559, 575),
+    text(50, 558, "Descripcion", 9, "F2"),
+    text(326, 558, "Conversaciones", 9, "F2"),
+    text(418, 558, "Duracion media", 9, "F2"),
+    text(510, 558, "Importe", 9, "F2"),
+    line(36, 548, 559, 548)
   ];
 
-  for (const row of rows) {
-    lines.push(`${row.agentName} | ${row.conversationCount} | ${row.averageDurationLabel} | ${money(row.llmCostUsd)} | ${money(row.marginUsd)} | ${money(row.subtotalUsd)}`);
+  let y = 530;
+  for (const row of rows.slice(0, 18)) {
+    commands.push(text(50, y, rowText(`Servicio Anub ${row.agentName}`, 48), 9));
+    commands.push(text(350, y, String(row.conversationCount), 9));
+    commands.push(text(430, y, row.averageDurationLabel, 9));
+    commands.push(text(498, y, money(row.subtotalUsd), 9));
+    commands.push(line(36, y - 9, 559, y - 9));
+    y -= 22;
+  }
+  if (!rows.length) {
+    commands.push(text(50, y, "Sin consumos para facturar.", 10));
   }
 
-  lines.push(
-    "",
-    `Costo Total de LLM: ${money(totals.llmCostUsd)}`,
-    `Margen (${Number(totals.marginPercent || 0).toFixed(2)}%): ${money(totals.marginUsd)}`,
-    `Subtotal: ${money(totals.subtotalUsd)}`,
-    `IVA 21%: ${money(totals.ivaUsd)}`,
-    `IG 3,5%: ${money(totals.igUsd)}`,
-    `Total U$D: ${money(totals.totalUsd)}`,
-    "",
-    "Documento generado por Luzuno AI."
+  commands.push(
+    rect(338, 52, 221, 82),
+    text(356, 112, "Subtotal", 10, "F2"),
+    text(494, 112, money(totals.subtotalUsd), 10),
+    text(356, 94, "IVA 21%", 10, "F2"),
+    text(494, 94, money(totals.ivaUsd), 10),
+    text(356, 76, "IG 3,5%", 10, "F2"),
+    text(494, 76, money(totals.igUsd), 10),
+    line(338, 70, 559, 70),
+    text(356, 56, "Total U$D", 12, "F2"),
+    text(486, 56, money(totals.totalUsd), 12, "F2"),
+    rect(36, 52, 286, 82),
+    text(50, 112, "Emisor", 10, "F2"),
+    text(50, 94, "Luzuno - Servicios de Inteligencia Artificial", 9),
+    text(50, 78, "Condicion IVA: Responsable Inscripto", 9),
+    text(50, 62, "Documento generado por Luzuno AI.", 9)
   );
 
-  const stream = pdfText(lines);
+  const stream = commands.join("\n");
   const objects = [
     object(1, "<< /Type /Catalog /Pages 2 0 R >>"),
     object(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
-    object(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>"),
+    object(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>"),
     object(4, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"),
-    object(5, `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`)
+    object(5, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>"),
+    object(6, `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`)
   ];
 
   let pdf = "%PDF-1.4\n";
