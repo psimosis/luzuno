@@ -375,28 +375,21 @@ async function injectSofiaMediaBridge(pageInstance) {
         return Math.round(Math.sqrt(sum / samples.length) * 100) / 100;
       }
 
-      const currentSenderTrackIds = () => new Set(
-        Array.from(window.__luzunoPeerConnections || [])
-          .flatMap((connection) => connection.getSenders().map((sender) => sender.track?.id).filter(Boolean))
-      );
-
-      const shouldIgnoreTrack = (track, senderIds = currentSenderTrackIds()) => (
+      const shouldIgnoreTrack = (track) => (
         !track
         || track.kind !== "audio"
         || track.readyState !== "live"
-        || senderIds.has(track.id)
         || track.id === window.__luzunoSofiaAudioTrack?.id
       );
 
       const refreshConnectedGains = () => {
-        const senderIds = currentSenderTrackIds();
         for (const item of connectedTracks.values()) {
-          item.gain.gain.value = shouldIgnoreTrack(item.track, senderIds) ? 0 : 1;
+          item.gain.gain.value = shouldIgnoreTrack(item.track) ? 0 : 1;
         }
       };
 
-      const connectTrack = (track, senderIds = currentSenderTrackIds()) => {
-        if (shouldIgnoreTrack(track, senderIds) || connectedTracks.has(track.id)) return;
+      const connectTrack = (track) => {
+        if (shouldIgnoreTrack(track) || connectedTracks.has(track.id)) return;
         try {
           const stream = new MediaStream([track]);
           const source = context.createMediaStreamSource(stream);
@@ -419,10 +412,9 @@ async function injectSofiaMediaBridge(pageInstance) {
       };
 
       const scan = () => {
-        const senderIds = currentSenderTrackIds();
         for (const connection of window.__luzunoPeerConnections || []) {
           for (const receiver of connection.getReceivers()) {
-            connectTrack(receiver.track, senderIds);
+            connectTrack(receiver.track);
           }
         }
         refreshConnectedGains();
@@ -435,13 +427,14 @@ async function injectSofiaMediaBridge(pageInstance) {
         contextState: context.state,
         inputLevel: readLevel(inputAnalyser, inputSamples),
         connectedTrackCount: connectedTracks.size,
-        ignoredTrackIds: Array.from(currentSenderTrackIds()),
+        ignoredTrackIds: [window.__luzunoSofiaAudioTrack?.id].filter(Boolean),
         receiverLevels: receiverAnalysers.map((item) => ({
           id: item.id,
           label: item.label,
           enabled: item.track.enabled,
           muted: item.track.muted,
           readyState: item.track.readyState,
+          gain: connectedTracks.get(item.id)?.gain.gain.value ?? null,
           level: readLevel(item.analyser, item.samples)
         }))
       });
