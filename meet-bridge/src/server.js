@@ -280,6 +280,13 @@ async function enableMediaIfOff(pageInstance) {
   ]).catch(() => false);
 }
 
+async function keepMediaEnabled(pageInstance, attempts = 4) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    await enableMediaIfOff(pageInstance);
+    await sleep(900);
+  }
+}
+
 async function createAnamSessionToken() {
   if (!anamApiKey) throw new Error("ANAM_API_KEY no esta configurada en meet-bridge.");
   if (!elevenLabsApiKey) throw new Error("SUPPORT_ELEVENLABS_API_KEY no esta configurada en meet-bridge.");
@@ -838,6 +845,7 @@ async function joinMeet(meetUrl) {
   ]).catch(() => false);
   await sleep(1500);
   if (joined) {
+    await keepMediaEnabled(pageInstance, 5).catch(() => {});
     if (!useVirtualDevices) {
       await pageInstance.evaluate(async () => {
         await window.__luzunoStartSofiaForMeet?.();
