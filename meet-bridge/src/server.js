@@ -28,6 +28,12 @@ function setState(next) {
   console.log(JSON.stringify(state));
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 async function browserWebSocketEndpoint() {
   const response = await fetch(`${debugUrl}/json/version`);
   if (!response.ok) throw new Error(`Chromium remoto no disponible: ${response.status}`);
@@ -58,17 +64,23 @@ async function activePage() {
   const instance = await browserInstance();
   if (page && !page.isClosed()) return page;
   const pages = await instance.pages();
-  page = pages[0] || await instance.newPage();
+  page = pages.find((candidate) => !candidate.url().startsWith("devtools://")) || await instance.newPage();
   page.setDefaultTimeout(5000);
+  await page.bringToFront().catch(() => {});
   return page;
 }
 
 async function clickButtonByText(pageInstance, labels) {
   return pageInstance.evaluate((buttonLabels) => {
     const normalizedLabels = buttonLabels.map((item) => item.toLowerCase());
-    const buttons = Array.from(document.querySelectorAll("button"));
+    const buttons = Array.from(document.querySelectorAll("button, [role='button']"));
     const button = buttons.find((candidate) => {
-      const text = (candidate.innerText || candidate.textContent || candidate.getAttribute("aria-label") || "").toLowerCase();
+      const text = [
+        candidate.innerText,
+        candidate.textContent,
+        candidate.getAttribute("aria-label"),
+        candidate.getAttribute("data-tooltip")
+      ].filter(Boolean).join(" ").toLowerCase();
       return normalizedLabels.some((label) => text.includes(label));
     });
     if (!button) return false;
@@ -80,9 +92,14 @@ async function clickButtonByText(pageInstance, labels) {
 async function clickButtonByAria(pageInstance, labels) {
   return pageInstance.evaluate((buttonLabels) => {
     const normalizedLabels = buttonLabels.map((item) => item.toLowerCase());
-    const buttons = Array.from(document.querySelectorAll("button"));
+    const buttons = Array.from(document.querySelectorAll("button, [role='button']"));
     const button = buttons.find((candidate) => {
-      const label = (candidate.getAttribute("aria-label") || "").toLowerCase();
+      const label = [
+        candidate.getAttribute("aria-label"),
+        candidate.getAttribute("data-tooltip"),
+        candidate.innerText,
+        candidate.textContent
+      ].filter(Boolean).join(" ").toLowerCase();
       return normalizedLabels.some((item) => label.includes(item));
     });
     if (!button) return false;
@@ -109,10 +126,11 @@ async function fillNameIfPresent(pageInstance) {
 
 async function maybePrepareMeet(pageInstance) {
   await pageInstance.waitForNetworkIdle({ idleTime: 1000, timeout: 10000 }).catch(() => {});
-  await pageInstance.waitForTimeout(2500);
+  await sleep(2500);
   await clickButtonByAria(pageInstance, ["turn off microphone", "desactivar mic", "microphone", "mic"]).catch(() => false);
   await clickButtonByAria(pageInstance, ["turn off camera", "desactivar cam", "desactivar c", "camera", "camara", "cámara"]).catch(() => false);
   await fillNameIfPresent(pageInstance);
+  await pageInstance.bringToFront().catch(() => {});
 }
 
 async function joinMeet(meetUrl) {
@@ -123,10 +141,16 @@ async function joinMeet(meetUrl) {
   const joined = await clickButtonByText(pageInstance, [
     "join now",
     "ask to join",
+    "join",
+    "request to join",
     "unirse ahora",
+    "unirme ahora",
     "solicitar unirse",
-    "participar ahora"
+    "pedir unirme",
+    "participar ahora",
+    "unirse"
   ]).catch(() => false);
+  await sleep(1500);
   setState({
     status: joined ? "in_meeting" : "needs_attention",
     meetUrl,
@@ -158,7 +182,7 @@ function html(req) {
   <main>
     <h1>Meet Bridge - ${displayName}</h1>
     <p>Use noVNC para iniciar sesion una vez con la cuenta Google del agente. Luego puede ordenar el ingreso a una reunion.</p>
-    <p><a class="button" href="${vncUrl}" target="_blank">Abrir consola noVNC</a><a class="button" href="/login" target="_blank">Abrir login Google</a></p>
+    <p><a class="button" href="${vncUrl}" target="_blank">Abrir consola noVNC</a><a class="button" href="/login">Abrir login Google</a></p>
     <form method="post" action="/join">
       <label>URL de Google Meet</label>
       <input name="meetUrl" value="${defaultMeetUrl}">
