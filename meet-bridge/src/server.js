@@ -100,6 +100,9 @@ async function cleanupMeetBridge(pageInstance) {
     if (window.__luzunoSenderRefreshInterval) {
       clearInterval(window.__luzunoSenderRefreshInterval);
     }
+    if (window.__luzunoSofiaOutputGuardInterval) {
+      clearInterval(window.__luzunoSofiaOutputGuardInterval);
+    }
     window.__luzunoAnamClient = null;
     window.__luzunoSofiaStream = null;
     window.__luzunoSofiaStreamPromise = null;
@@ -281,15 +284,19 @@ async function injectSofiaMediaBridge(pageInstance) {
     async function createMeetAudioInput() {
       const context = new AudioContext({ latencyHint: "interactive" });
       const destination = context.createMediaStreamDestination();
+      const inputGain = context.createGain();
+      inputGain.gain.value = 1;
+      inputGain.connect(destination);
       const connectedTracks = new Set();
       window.__luzunoMeetAudioContext = context;
+      window.__luzunoMeetInputGain = inputGain;
 
       const connectTrack = (track) => {
         if (!track || track.kind !== "audio" || track.readyState !== "live" || connectedTracks.has(track.id)) return;
         try {
           const stream = new MediaStream([track]);
           const source = context.createMediaStreamSource(stream);
-          source.connect(destination);
+          source.connect(inputGain);
           connectedTracks.add(track.id);
         } catch {}
       };
@@ -306,6 +313,49 @@ async function injectSofiaMediaBridge(pageInstance) {
       return destination.stream.getAudioTracks().length
         ? destination.stream
         : new MediaStream([createSilentAudioTrack()]);
+    }
+
+    async function waitForCapturedStream(video) {
+      const deadline = Date.now() + 10000;
+      while (Date.now() < deadline) {
+        const sourceStream = video.captureStream ? video.captureStream(30) : video.mozCaptureStream?.(30);
+        const videoTrack = sourceStream?.getVideoTracks().find((track) => track.readyState === "live");
+        const audioTrack = sourceStream?.getAudioTracks().find((track) => track.readyState === "live");
+        if (videoTrack && audioTrack && video.videoWidth > 0 && video.videoHeight > 0) {
+          return { sourceStream, videoTrack, audioTrack };
+        }
+        await wait(250);
+      }
+      const sourceStream = video.captureStream ? video.captureStream(30) : video.mozCaptureStream?.(30);
+      return {
+        sourceStream,
+        videoTrack: sourceStream?.getVideoTracks()[0] || createFallbackVideoTrack(),
+        audioTrack: sourceStream?.getAudioTracks()[0] || createSilentAudioTrack()
+      };
+    }
+
+    function guardMeetInputFromSofiaOutput(sourceStream) {
+      const sourceTrack = sourceStream?.getAudioTracks?.()[0];
+      const context = window.__luzunoMeetAudioContext;
+      const inputGain = window.__luzunoMeetInputGain;
+      if (!sourceTrack || !context || !inputGain) return;
+      try {
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 512;
+        const monitorSource = context.createMediaStreamSource(new MediaStream([sourceTrack.clone()]));
+        monitorSource.connect(analyser);
+        const samples = new Uint8Array(analyser.fftSize);
+        window.__luzunoSofiaOutputGuardInterval = setInterval(() => {
+          analyser.getByteTimeDomainData(samples);
+          let sum = 0;
+          for (const sample of samples) {
+            const centered = sample - 128;
+            sum += centered * centered;
+          }
+          const rms = Math.sqrt(sum / samples.length);
+          inputGain.gain.value = rms > 6 ? 0 : 1;
+        }, 80);
+      } catch {}
     }
 
     async function createSofiaStream() {
@@ -335,13 +385,9 @@ async function injectSofiaMediaBridge(pageInstance) {
         }
         await client.streamToVideoElement("luzuno-sofia-video", micStream);
         await video.play().catch(() => {});
-        await wait(1000);
-
-        const sourceStream = video.captureStream ? video.captureStream(30) : video.mozCaptureStream?.(30);
-        const tracks = [];
-        const videoTrack = sourceStream?.getVideoTracks()[0] || createFallbackVideoTrack();
-        const audioTrack = sourceStream?.getAudioTracks()[0] || createSilentAudioTrack();
-        tracks.push(videoTrack, audioTrack);
+        const { sourceStream, videoTrack, audioTrack } = await waitForCapturedStream(video);
+        guardMeetInputFromSofiaOutput(sourceStream);
+        const tracks = [videoTrack, audioTrack];
         const stream = new MediaStream(tracks);
         window.__luzunoSofiaStream = stream;
         window.__luzunoMeetBridgeState = { status: "streaming", message: "Sofia esta conectada a la camara y microfono de Meet." };
@@ -412,6 +458,7 @@ async function injectSofiaMediaBridge(pageInstance) {
         window.__luzunoMeetBridgeActive = true;
         await createSofiaStream();
         await replaceAllSenders();
+        window.__luzunoForceSenderRefreshUntil = Date.now() + 12000;
         return window.__luzunoMeetBridgeState;
       };
 
@@ -438,7 +485,8 @@ async function injectSofiaMediaBridge(pageInstance) {
         for (const connection of peerConnections) {
           for (const sender of connection.getSenders()) {
             const kind = sender.track?.kind;
-            if (window.__luzunoMeetBridgeActive && (kind === "audio" || kind === "video") && sender.track.readyState !== "live") {
+            const shouldForceRefresh = Date.now() < (window.__luzunoForceSenderRefreshUntil || 0);
+            if (window.__luzunoMeetBridgeActive && (kind === "audio" || kind === "video") && (shouldForceRefresh || sender.track.readyState !== "live")) {
               replaceSenderTrack(sender, kind);
             }
           }
