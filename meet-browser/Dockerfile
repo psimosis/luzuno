@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim
+FROM meet-browser-base:latest
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DISPLAY=:99
@@ -6,16 +6,7 @@ ENV CHROME_PROFILE_DIR=/data/chrome-profile
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    chromium \
-    dbus-x11 \
-    fonts-liberation \
-    libasound2 \
-    novnc \
-    pulseaudio \
-    websockify \
-    x11vnc \
-    xvfb \
+    ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 
 COPY start.sh /usr/local/bin/meet-browser-start

@@ -27,6 +27,7 @@ let state = {
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+app.use("/vendor/anam", express.static("node_modules/@anam-ai/js-sdk/dist/umd"));
 
 function setState(next) {
   state = {
@@ -310,6 +311,53 @@ async function injectSofiaMediaBridge(pageInstance) {
       }
       return originalGetUserMedia(constraints);
     };
+
+    const OriginalPeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection;
+    if (OriginalPeerConnection?.prototype && !OriginalPeerConnection.prototype.__luzunoPatched) {
+      const originalAddTrack = OriginalPeerConnection.prototype.addTrack;
+      const originalAddTransceiver = OriginalPeerConnection.prototype.addTransceiver;
+
+      async function replaceSenderTrack(sender, kind) {
+        try {
+          const sofiaStream = await createSofiaStream();
+          const replacement = kind === "video"
+            ? sofiaStream.getVideoTracks()[0]
+            : sofiaStream.getAudioTracks()[0];
+          if (replacement && sender?.replaceTrack) {
+            replacement.enabled = true;
+            await sender.replaceTrack(replacement);
+            window.__luzunoMeetBridgeState = {
+              status: "webrtc_attached",
+              message: "Sofia esta conectada al WebRTC de Meet."
+            };
+          }
+        } catch (error) {
+          window.__luzunoMeetBridgeState = {
+            status: "webrtc_error",
+            message: error?.message || String(error)
+          };
+        }
+      }
+
+      OriginalPeerConnection.prototype.addTrack = function patchedAddTrack(track, ...args) {
+        const sender = originalAddTrack.call(this, track, ...args);
+        if (track?.kind === "audio" || track?.kind === "video") {
+          replaceSenderTrack(sender, track.kind);
+        }
+        return sender;
+      };
+
+      OriginalPeerConnection.prototype.addTransceiver = function patchedAddTransceiver(trackOrKind, init) {
+        const transceiver = originalAddTransceiver.call(this, trackOrKind, init);
+        const kind = typeof trackOrKind === "string" ? trackOrKind : trackOrKind?.kind;
+        if ((kind === "audio" || kind === "video") && transceiver?.sender) {
+          replaceSenderTrack(transceiver.sender, kind);
+        }
+        return transceiver;
+      };
+
+      OriginalPeerConnection.prototype.__luzunoPatched = true;
+    }
   }, {
     sessionToken,
     anamApiUrl,
@@ -420,16 +468,95 @@ function html(req) {
 </html>`;
 }
 
+function sofiaSourceHtml() {
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sofia Source - Luzuno</title>
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #081b2d; font-family: Arial, sans-serif; }
+    video { width: 100vw; height: 100vh; object-fit: cover; background: #081b2d; }
+    .status { position: fixed; left: 16px; bottom: 14px; color: white; background: rgba(8,27,45,.72); padding: 8px 10px; border-radius: 8px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <video id="sofia-video" autoplay playsinline></video>
+  <div id="status" class="status">Iniciando Sofia...</div>
+  <script src="/vendor/anam/anam.js"></script>
+  <script>
+    const status = document.getElementById("status");
+    const video = document.getElementById("sofia-video");
+    function setStatus(message) {
+      status.textContent = message;
+      window.__sofiaSourceState = { message, updatedAt: new Date().toISOString() };
+    }
+
+    async function start() {
+      try {
+        if (!window.anam?.createClient) throw new Error("No se pudo cargar el SDK de Anam.");
+        const micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+          }
+        });
+        const response = await fetch("/sofia-session", { method: "POST" });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || "No se pudo crear la sesion de Sofia.");
+        const client = window.anam.createClient(body.sessionToken, body.anamApiUrl ? { api: { baseUrl: body.anamApiUrl } } : {});
+        window.__luzunoAnamClient = client;
+        await client.streamToVideoElement("sofia-video", micStream);
+        await video.play().catch(() => {});
+        setStatus("Sofia transmitiendo a Meet");
+      } catch (error) {
+        console.error(error);
+        setStatus("Error: " + (error?.message || String(error)));
+        setTimeout(start, 5000);
+      }
+    }
+    start();
+  </script>
+</body>
+</html>`;
+}
+
 app.get("/", (req, res) => res.type("html").send(html(req)));
 app.get("/health", (_req, res) => res.json({ ok: true, state }));
+app.get("/sofia-source", (_req, res) => res.type("html").send(sofiaSourceHtml()));
+app.post("/sofia-session", async (_req, res, next) => {
+  try {
+    const sessionToken = await createAnamSessionToken();
+    res.json({ sessionToken, anamApiUrl });
+  } catch (error) {
+    next(error);
+  }
+});
 app.get("/media-state", async (_req, res, next) => {
   try {
     const pageInstance = await activePage();
-    const mediaState = await pageInstance.evaluate(() => ({
-      url: location.href,
-      bridge: window.__luzunoMeetBridgeState || null,
-      hasAnamClient: Boolean(window.__luzunoAnamClient),
-      localVideo: (() => {
+    const mediaState = await pageInstance.evaluate(async () => {
+      const devices = navigator.mediaDevices?.enumerateDevices
+        ? await navigator.mediaDevices.enumerateDevices().then((items) => items.map((device) => ({
+          kind: device.kind,
+          label: device.label,
+          deviceId: device.deviceId ? "present" : "",
+          groupId: device.groupId ? "present" : ""
+        }))).catch((error) => ({ error: error.message }))
+        : [];
+      const probe = navigator.mediaDevices?.getUserMedia
+        ? await navigator.mediaDevices.getUserMedia({ audio: true, video: true }).then((stream) => {
+          const result = {
+            audioTracks: stream.getAudioTracks().map((track) => ({ label: track.label, enabled: track.enabled, muted: track.muted, readyState: track.readyState })),
+            videoTracks: stream.getVideoTracks().map((track) => ({ label: track.label, enabled: track.enabled, muted: track.muted, readyState: track.readyState }))
+          };
+          stream.getTracks().forEach((track) => track.stop());
+          return result;
+        }).catch((error) => ({ error: error.message }))
+        : null;
+      const localVideo = (() => {
         const video = document.getElementById("luzuno-sofia-video");
         if (!video) return null;
         const stream = video.captureStream?.();
@@ -440,17 +567,25 @@ app.get("/media-state", async (_req, res, next) => {
           audioTracks: stream?.getAudioTracks().length || 0,
           videoTracks: stream?.getVideoTracks().length || 0
         };
-      })(),
-      mediaElements: Array.from(document.querySelectorAll("audio, video")).map((element) => ({
-        id: element.id || "",
-        tag: element.tagName,
-        muted: element.muted,
-        paused: element.paused,
-        readyState: element.readyState,
-        width: element.videoWidth || 0,
-        height: element.videoHeight || 0
-      })).slice(0, 20)
-    })).catch((error) => ({ error: error.message }));
+      })();
+      return {
+        url: location.href,
+        bridge: window.__luzunoMeetBridgeState || null,
+        hasAnamClient: Boolean(window.__luzunoAnamClient),
+        devices,
+        probe,
+        localVideo,
+        mediaElements: Array.from(document.querySelectorAll("audio, video")).map((element) => ({
+          id: element.id || "",
+          tag: element.tagName,
+          muted: element.muted,
+          paused: element.paused,
+          readyState: element.readyState,
+          width: element.videoWidth || 0,
+          height: element.videoHeight || 0
+        })).slice(0, 20)
+      };
+    }).catch((error) => ({ error: error.message }));
     res.json({ ok: true, state, mediaState });
   } catch (error) {
     next(error);

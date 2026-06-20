@@ -94,6 +94,13 @@ services:
     image: meet-browser:latest
     container_name: meet-browser-sofia
     restart: unless-stopped
+    privileged: true
+    devices:
+      - "/dev/video0:/dev/video0"
+    environment:
+      SOFIA_SOURCE_URL: http://meet-bridge-sofia:3200/sofia-source
+      VIRTUAL_CAMERA_DEVICE: /dev/video0
+      ENABLE_VIRTUAL_CAMERA: "0"
     ports:
       - "7900:7900"
       - "9223:9223"
