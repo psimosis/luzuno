@@ -1,15 +1,15 @@
 import express from "express";
-import { Builder, By, until } from "selenium-webdriver";
-import chrome from "selenium-webdriver/chrome.js";
+import puppeteer from "puppeteer-core";
 
 const app = express();
 const port = Number(process.env.PORT || 3200);
-const seleniumUrl = process.env.SELENIUM_REMOTE_URL || "http://meet-browser-sofia:4444/wd/hub";
+const debugUrl = process.env.MEET_BROWSER_DEBUG_URL || "http://meet-browser-sofia:9222";
 const defaultMeetUrl = process.env.MEET_DEFAULT_URL || "";
 const displayName = process.env.MEET_AGENT_DISPLAY_NAME || "Sofia";
 const vncPort = process.env.MEET_BROWSER_NOVNC_PORT || "7900";
 
-let driver;
+let browser;
+let page;
 let state = {
   status: "idle",
   meetUrl: "",
@@ -28,80 +28,105 @@ function setState(next) {
   console.log(JSON.stringify(state));
 }
 
-async function browserDriver() {
-  if (driver) return driver;
-  const options = new chrome.Options()
-    .addArguments(
-      "--autoplay-policy=no-user-gesture-required",
-      "--use-fake-ui-for-media-stream",
-      "--disable-dev-shm-usage",
-      "--window-size=1366,768",
-      "--user-data-dir=/home/seluser/chrome-profile"
-    );
-  driver = await new Builder()
-    .forBrowser("chrome")
-    .setChromeOptions(options)
-    .usingServer(seleniumUrl)
-    .build();
-  return driver;
+async function browserWebSocketEndpoint() {
+  const response = await fetch(`${debugUrl}/json/version`);
+  if (!response.ok) throw new Error(`Chromium remoto no disponible: ${response.status}`);
+  const data = await response.json();
+  if (!data.webSocketDebuggerUrl) throw new Error("Chromium remoto no expuso webSocketDebuggerUrl.");
+  const debug = new URL(debugUrl);
+  const websocket = new URL(data.webSocketDebuggerUrl);
+  websocket.hostname = debug.hostname;
+  websocket.port = debug.port;
+  return websocket.toString();
 }
 
-async function findClickable(driverInstance, candidates, timeoutMs = 2500) {
-  for (const candidate of candidates) {
-    try {
-      const element = await driverInstance.wait(until.elementLocated(candidate), timeoutMs);
-      await driverInstance.wait(until.elementIsVisible(element), timeoutMs);
-      await driverInstance.wait(until.elementIsEnabled(element), timeoutMs);
-      return element;
-    } catch {}
-  }
-  return null;
+async function browserInstance() {
+  if (browser && browser.connected) return browser;
+  browser = await puppeteer.connect({
+    browserWSEndpoint: await browserWebSocketEndpoint(),
+    defaultViewport: { width: 1366, height: 768 }
+  });
+  browser.on("disconnected", () => {
+    browser = null;
+    page = null;
+    setState({ status: "idle", message: "Navegador desconectado." });
+  });
+  return browser;
 }
 
-async function clickFirst(driverInstance, candidates, timeoutMs = 2500) {
-  const element = await findClickable(driverInstance, candidates, timeoutMs);
-  if (!element) return false;
-  await element.click();
-  return true;
+async function activePage() {
+  const instance = await browserInstance();
+  if (page && !page.isClosed()) return page;
+  const pages = await instance.pages();
+  page = pages[0] || await instance.newPage();
+  page.setDefaultTimeout(5000);
+  return page;
 }
 
-async function maybePrepareMeet(driverInstance) {
-  await driverInstance.sleep(3500);
-  await clickFirst(driverInstance, [
-    By.css("button[aria-label*='Turn off microphone']"),
-    By.css("button[aria-label*='Desactivar mic']"),
-    By.css("button[aria-label*='microphone']"),
-    By.css("button[aria-label*='mic']")
-  ], 1200);
-  await clickFirst(driverInstance, [
-    By.css("button[aria-label*='Turn off camera']"),
-    By.css("button[aria-label*='Desactivar c']"),
-    By.css("button[aria-label*='camera']"),
-    By.css("button[aria-label*='cámara']")
-  ], 1200);
-  const nameInput = await findClickable(driverInstance, [
-    By.css("input[aria-label*='Your name']"),
-    By.css("input[aria-label*='Tu nombre']"),
-    By.css("input[aria-label*='Nombre']")
-  ], 1000);
-  if (nameInput) {
-    await nameInput.clear();
-    await nameInput.sendKeys(displayName);
-  }
+async function clickButtonByText(pageInstance, labels) {
+  return pageInstance.evaluate((buttonLabels) => {
+    const normalizedLabels = buttonLabels.map((item) => item.toLowerCase());
+    const buttons = Array.from(document.querySelectorAll("button"));
+    const button = buttons.find((candidate) => {
+      const text = (candidate.innerText || candidate.textContent || candidate.getAttribute("aria-label") || "").toLowerCase();
+      return normalizedLabels.some((label) => text.includes(label));
+    });
+    if (!button) return false;
+    button.click();
+    return true;
+  }, labels);
+}
+
+async function clickButtonByAria(pageInstance, labels) {
+  return pageInstance.evaluate((buttonLabels) => {
+    const normalizedLabels = buttonLabels.map((item) => item.toLowerCase());
+    const buttons = Array.from(document.querySelectorAll("button"));
+    const button = buttons.find((candidate) => {
+      const label = (candidate.getAttribute("aria-label") || "").toLowerCase();
+      return normalizedLabels.some((item) => label.includes(item));
+    });
+    if (!button) return false;
+    button.click();
+    return true;
+  }, labels);
+}
+
+async function fillNameIfPresent(pageInstance) {
+  await pageInstance.evaluate((name) => {
+    const inputs = Array.from(document.querySelectorAll("input"));
+    const input = inputs.find((candidate) => {
+      const label = `${candidate.getAttribute("aria-label") || ""} ${candidate.placeholder || ""}`.toLowerCase();
+      return label.includes("your name") || label.includes("tu nombre") || label.includes("nombre");
+    });
+    if (!input) return false;
+    input.focus();
+    input.value = name;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }, displayName).catch(() => false);
+}
+
+async function maybePrepareMeet(pageInstance) {
+  await pageInstance.waitForNetworkIdle({ idleTime: 1000, timeout: 10000 }).catch(() => {});
+  await pageInstance.waitForTimeout(2500);
+  await clickButtonByAria(pageInstance, ["turn off microphone", "desactivar mic", "microphone", "mic"]).catch(() => false);
+  await clickButtonByAria(pageInstance, ["turn off camera", "desactivar cam", "desactivar c", "camera", "camara", "cámara"]).catch(() => false);
+  await fillNameIfPresent(pageInstance);
 }
 
 async function joinMeet(meetUrl) {
-  const driverInstance = await browserDriver();
+  const pageInstance = await activePage();
   setState({ status: "joining", meetUrl, message: "Abriendo Google Meet." });
-  await driverInstance.get(meetUrl);
-  await maybePrepareMeet(driverInstance);
-  const joined = await clickFirst(driverInstance, [
-    By.xpath("//button[.//*[contains(text(),'Join now')] or contains(.,'Join now')]"),
-    By.xpath("//button[.//*[contains(text(),'Ask to join')] or contains(.,'Ask to join')]"),
-    By.xpath("//button[.//*[contains(text(),'Unirse ahora')] or contains(.,'Unirse ahora')]"),
-    By.xpath("//button[.//*[contains(text(),'Solicitar unirse')] or contains(.,'Solicitar unirse')]"),
-    By.xpath("//button[.//*[contains(text(),'Participar ahora')] or contains(.,'Participar ahora')]")
-  ], 10000);
+  await pageInstance.goto(meetUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await maybePrepareMeet(pageInstance);
+  const joined = await clickButtonByText(pageInstance, [
+    "join now",
+    "ask to join",
+    "unirse ahora",
+    "solicitar unirse",
+    "participar ahora"
+  ]).catch(() => false);
   setState({
     status: joined ? "in_meeting" : "needs_attention",
     meetUrl,
@@ -114,7 +139,7 @@ async function joinMeet(meetUrl) {
 function html(req) {
   const host = req.get("host")?.split(":")[0] || "localhost";
   const scheme = req.protocol || "http";
-  const vncUrl = `${scheme}://${host}:${vncPort}/`;
+  const vncUrl = `${scheme}://${host}:${vncPort}/vnc.html?autoconnect=true&resize=scale&password=`;
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -140,7 +165,7 @@ function html(req) {
       <button type="submit">Entrar a Meet</button>
     </form>
     <form method="post" action="/close">
-      <button type="submit">Cerrar navegador</button>
+      <button type="submit">Desconectar controlador</button>
     </form>
     <h2>Estado</h2>
     <pre>${JSON.stringify(state, null, 2)}</pre>
@@ -154,8 +179,8 @@ app.get("/health", (_req, res) => res.json({ ok: true, state }));
 
 app.get("/login", async (_req, res, next) => {
   try {
-    const driverInstance = await browserDriver();
-    await driverInstance.get("https://accounts.google.com/");
+    const pageInstance = await activePage();
+    await pageInstance.goto("https://accounts.google.com/", { waitUntil: "domcontentloaded", timeout: 60000 });
     setState({ status: "login_required", message: "Complete el login por noVNC." });
     res.redirect("/");
   } catch (error) {
@@ -181,9 +206,10 @@ app.post("/join", async (req, res, next) => {
 
 app.post("/close", async (_req, res, next) => {
   try {
-    if (driver) await driver.quit();
-    driver = null;
-    setState({ status: "idle", message: "Navegador cerrado." });
+    await browser?.disconnect();
+    browser = null;
+    page = null;
+    setState({ status: "idle", message: "Controlador desconectado." });
     res.redirect("/");
   } catch (error) {
     next(error);

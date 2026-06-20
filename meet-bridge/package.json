@@ -9,6 +9,6 @@
   },
   "dependencies": {
     "express": "^5.1.0",
-    "selenium-webdriver": "^4.27.0"
+    "puppeteer-core": "^24.11.2"
   }
 }

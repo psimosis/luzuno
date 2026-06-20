@@ -7,7 +7,7 @@ Panel web multitenant para administrar Anubs de ElevenLabs con autenticacion por
 - `agents-panel`: aplicacion Node/Express.
 - `keycloak`: autenticacion, usuarios y rol `Administrador`.
 - `mysql`: persistencia para Keycloak y el panel.
-- `meet-browser-sofia`: navegador Chrome con noVNC para la cuenta Google de Sofia.
+- `meet-browser-sofia`: Chromium con noVNC para la cuenta Google de Sofia.
 - `meet-bridge-sofia`: controlador experimental para que un Anub ingrese a Google Meet.
 
 El login de Keycloak usa el theme `keycloak-theme/luzuno`, montado en `/opt/keycloak/themes`.
@@ -57,7 +57,7 @@ El panel y Keycloak toman el host desde la URL con la que se accede. Si el servi
 
 ## Meet Bridge experimental
 
-El bridge controla un Chrome remoto mediante Selenium. El perfil se guarda en el volumen `meet_browser_sofia_data`, por lo que el login Google del agente sobrevive reinicios.
+El bridge controla un Chromium remoto mediante Chrome DevTools. El perfil se guarda en el volumen `meet_browser_sofia_data`, por lo que el login Google del agente sobrevive reinicios.
 
 Primer uso:
 
