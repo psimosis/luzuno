@@ -7,6 +7,8 @@ Panel web multitenant para administrar Anubs de ElevenLabs con autenticacion por
 - `agents-panel`: aplicacion Node/Express.
 - `keycloak`: autenticacion, usuarios y rol `Administrador`.
 - `mysql`: persistencia para Keycloak y el panel.
+- `meet-browser-sofia`: navegador Chrome con noVNC para la cuenta Google de Sofia.
+- `meet-bridge-sofia`: controlador experimental para que un Anub ingrese a Google Meet.
 
 El login de Keycloak usa el theme `keycloak-theme/luzuno`, montado en `/opt/keycloak/themes`.
 
@@ -17,6 +19,7 @@ El login de Keycloak usa el theme `keycloak-theme/luzuno`, montado en `/opt/keyc
 - Configuracion de `Instrucciones del Anub`.
 - Administracion de usuarios, roles, passwords y API keys de ElevenLabs.
 - API keys guardadas cifradas en MySQL.
+- Bridge experimental de Google Meet con consola noVNC para login inicial del usuario Google del Anub.
 
 ## Configuracion
 
@@ -49,6 +52,21 @@ El panel y Keycloak toman el host desde la URL con la que se accede. Si el servi
 - Panel HTTP: `http://<ip-dhcp>:3000`
 - Keycloak: `http://<ip-dhcp>:8080`
 - MySQL: `<ip-dhcp>:3306`
+- Meet Bridge Sofia: `http://<ip-dhcp>:3200`
+- noVNC Sofia: `http://<ip-dhcp>:7900`
+
+## Meet Bridge experimental
+
+El bridge controla un Chrome remoto mediante Selenium. El perfil se guarda en el volumen `meet_browser_sofia_data`, por lo que el login Google del agente sobrevive reinicios.
+
+Primer uso:
+
+1. Abrir `http://<ip-dhcp>:3200`.
+2. Abrir la consola noVNC desde el boton o ir a `http://<ip-dhcp>:7900`.
+3. Usar `Abrir login Google` y completar el acceso con la cuenta Enterprise del Anub.
+4. Pegar una URL de Meet y usar `Entrar a Meet`.
+
+Esta rama deja lista la base para que Sofia participe como usuario real de Meet. La integracion completa de cara/voz dinamica Anam/ElevenLabs requiere una segunda capa de ruteo multimedia hacia camara y microfono virtual.
 
 ## Nota de seguridad
 

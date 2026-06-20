@@ -88,6 +88,44 @@ services:
     networks:
       - idm_net
 
+  meet-browser-sofia:
+    image: selenium/standalone-chrome:latest
+    container_name: meet-browser-sofia
+    restart: unless-stopped
+    shm_size: "2gb"
+    environment:
+      SE_NODE_SESSION_TIMEOUT: 86400
+      SE_NODE_MAX_SESSIONS: 1
+      SE_NODE_OVERRIDE_MAX_SESSIONS: "true"
+      SE_START_XVFB: "true"
+      SE_VNC_NO_PASSWORD: 1
+    ports:
+      - "4444:4444"
+      - "7900:7900"
+    volumes:
+      - meet_browser_sofia_data:/home/seluser
+    networks:
+      - idm_net
+
+  meet-bridge-sofia:
+    build:
+      context: ./meet-bridge
+    image: meet-bridge:latest
+    container_name: meet-bridge-sofia
+    restart: unless-stopped
+    depends_on:
+      - meet-browser-sofia
+    environment:
+      PORT: 3200
+      MEET_AGENT_DISPLAY_NAME: ${MEET_AGENT_DISPLAY_NAME}
+      MEET_DEFAULT_URL: ${MEET_DEFAULT_URL}
+      MEET_BROWSER_NOVNC_PORT: 7900
+      SELENIUM_REMOTE_URL: http://meet-browser-sofia:4444/wd/hub
+    ports:
+      - "3200:3200"
+    networks:
+      - idm_net
+
 networks:
   idm_net:
     external: true
@@ -97,3 +135,4 @@ volumes:
   mysql_data:
     name: mysql_data
   agents_panel_data:
+  meet_browser_sofia_data:
