@@ -109,6 +109,9 @@ async function cleanupMeetBridge(pageInstance) {
     if (window.__luzunoSenderRefreshInterval) {
       clearInterval(window.__luzunoSenderRefreshInterval);
     }
+    if (window.__luzunoCaptionScanInterval) {
+      clearInterval(window.__luzunoCaptionScanInterval);
+    }
     try {
       window.__luzunoAgentPcmInput?.processor?.disconnect?.();
       window.__luzunoAgentPcmInput?.keepAliveGain?.disconnect?.();
@@ -143,10 +146,12 @@ async function readMediaDiagnosticSnapshot(pageInstance) {
     }));
     const localVideoElement = document.getElementById("luzuno-sofia-video");
     const localVideoStream = localVideoElement?.captureStream?.();
-    return {
-      url: location.href,
-      bridge: window.__luzunoMeetBridgeState || null,
-      audio: window.__luzunoReadAudioDiagnostics?.() || null,
+      return {
+        url: location.href,
+        bridge: window.__luzunoMeetBridgeState || null,
+        caption: window.__luzunoLastCaptionMessage || null,
+        captionError: window.__luzunoLastCaptionError || null,
+        audio: window.__luzunoReadAudioDiagnostics?.() || null,
       localVideo: localVideoElement ? {
         readyState: localVideoElement.readyState,
         width: localVideoElement.videoWidth,
@@ -513,6 +518,95 @@ async function injectSofiaMediaBridge(pageInstance) {
       window.__luzunoAgentPcmInput = { agentInput, processor, keepAliveGain };
     }
 
+    function visibleText(element) {
+      const style = window.getComputedStyle(element);
+      if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return "";
+      const rect = element.getBoundingClientRect();
+      if (!rect.width || !rect.height) return "";
+      return (element.innerText || element.textContent || "").replace(/\s+/g, " ").trim();
+    }
+
+    function looksLikeCaption(text) {
+      if (!text || text.length < 3 || text.length > 240) return false;
+      const lower = text.toLowerCase();
+      const blocked = [
+        "presentar ahora",
+        "levantar la mano",
+        "mas opciones",
+        "más opciones",
+        "salir de la llamada",
+        "activar subtitulos",
+        "activar subtítulos",
+        "desactivar subtitulos",
+        "desactivar subtítulos",
+        "microfono",
+        "micrófono",
+        "camara",
+        "cámara",
+        "google meet",
+        config.displayName.toLowerCase()
+      ];
+      return !blocked.some((item) => lower.includes(item));
+    }
+
+    function captionCandidates() {
+      const bottomLimit = window.innerHeight * 0.45;
+      const candidates = [];
+      document.querySelectorAll('[aria-live], [role="status"], [role="log"], div, span').forEach((element) => {
+        const rect = element.getBoundingClientRect();
+        if (rect.top < bottomLimit) return;
+        const text = visibleText(element);
+        if (looksLikeCaption(text)) candidates.push(text);
+      });
+      return candidates
+        .map((text) => text.replace(/^(.*?):\s*/, "").trim())
+        .filter(looksLikeCaption);
+    }
+
+    function enableMeetCaptions() {
+      const labels = [
+        "turn on captions",
+        "show captions",
+        "activar subtitulos",
+        "activar subtítulos",
+        "mostrar subtitulos",
+        "mostrar subtítulos"
+      ];
+      const buttons = Array.from(document.querySelectorAll("button, [role='button']"));
+      const button = buttons.find((candidate) => {
+        const text = [
+          candidate.innerText,
+          candidate.textContent,
+          candidate.getAttribute("aria-label"),
+          candidate.getAttribute("data-tooltip")
+        ].filter(Boolean).join(" ").toLowerCase();
+        return labels.some((label) => text.includes(label));
+      });
+      if (button) button.click();
+    }
+
+    function startMeetCaptionBridge(client) {
+      if (!client?.sendUserMessage || window.__luzunoCaptionScanInterval) return;
+      const sent = new Set();
+      let lastText = "";
+      enableMeetCaptions();
+      window.__luzunoCaptionScanInterval = setInterval(() => {
+        enableMeetCaptions();
+        const captions = captionCandidates();
+        const text = captions[captions.length - 1] || "";
+        if (!text || text === lastText || sent.has(text)) return;
+        lastText = text;
+        sent.add(text);
+        if (sent.size > 50) sent.delete(sent.values().next().value);
+        try {
+          client.sendUserMessage(text);
+          window.__luzunoLastCaptionMessage = { text, at: new Date().toISOString() };
+        } catch (error) {
+          window.__luzunoLastCaptionError = error?.message || String(error);
+        }
+      }, 800);
+    }
+
     async function waitForCapturedStream(video) {
       const deadline = Date.now() + 10000;
       while (Date.now() < deadline) {
@@ -559,6 +653,7 @@ async function injectSofiaMediaBridge(pageInstance) {
         }
         await client.streamToVideoElement("luzuno-sofia-video", micStream);
         startAgentPcmAudioBridge(client);
+        startMeetCaptionBridge(client);
         await video.play().catch(() => {});
         const { videoTrack, audioTrack } = await waitForCapturedStream(video);
         audioTrack.enabled = Boolean(window.__luzunoMeetBridgeActive);
@@ -916,6 +1011,8 @@ app.get("/media-state", async (_req, res, next) => {
         url: location.href,
         bridge: window.__luzunoMeetBridgeState || null,
         hasAnamClient: Boolean(window.__luzunoAnamClient),
+        caption: window.__luzunoLastCaptionMessage || null,
+        captionError: window.__luzunoLastCaptionError || null,
         audio: window.__luzunoReadAudioDiagnostics?.() || null,
         devices,
         probe,
