@@ -52,6 +52,7 @@ async function browserInstance() {
     browserWSEndpoint: await browserWebSocketEndpoint(),
     defaultViewport: { width: 1366, height: 768 }
   });
+  await browser.defaultBrowserContext().overridePermissions("https://meet.google.com", ["camera", "microphone"]).catch(() => {});
   browser.on("disconnected", () => {
     browser = null;
     page = null;
@@ -64,7 +65,9 @@ async function activePage() {
   const instance = await browserInstance();
   if (page && !page.isClosed()) return page;
   const pages = await instance.pages();
-  page = pages.find((candidate) => !candidate.url().startsWith("devtools://")) || await instance.newPage();
+  page = pages.find((candidate) => candidate.url().startsWith("https://meet.google.com/"))
+    || pages.find((candidate) => !candidate.url().startsWith("devtools://"))
+    || await instance.newPage();
   page.setDefaultTimeout(5000);
   await page.bringToFront().catch(() => {});
   return page;
@@ -124,13 +127,57 @@ async function fillNameIfPresent(pageInstance) {
   }, displayName).catch(() => false);
 }
 
+async function enableMediaIfOff(pageInstance) {
+  await clickButtonByAria(pageInstance, [
+    "turn on microphone",
+    "activar mic",
+    "activar el mic",
+    "activar microfono",
+    "activar micrófono",
+    "unmute"
+  ]).catch(() => false);
+  await clickButtonByAria(pageInstance, [
+    "turn on camera",
+    "activar cam",
+    "activar la cam",
+    "activar camara",
+    "activar cámara",
+    "start video"
+  ]).catch(() => false);
+}
+
 async function maybePrepareMeet(pageInstance) {
   await pageInstance.waitForNetworkIdle({ idleTime: 1000, timeout: 10000 }).catch(() => {});
   await sleep(2500);
-  await clickButtonByAria(pageInstance, ["turn off microphone", "desactivar mic", "microphone", "mic"]).catch(() => false);
-  await clickButtonByAria(pageInstance, ["turn off camera", "desactivar cam", "desactivar c", "camera", "camara", "cámara"]).catch(() => false);
+  await enableMediaIfOff(pageInstance);
   await fillNameIfPresent(pageInstance);
   await pageInstance.bringToFront().catch(() => {});
+}
+
+async function leaveMeet() {
+  const pageInstance = await activePage();
+  await pageInstance.bringToFront().catch(() => {});
+  const wasInMeet = pageInstance.url().startsWith("https://meet.google.com/");
+  const left = await clickButtonByAria(pageInstance, [
+    "leave call",
+    "leave meeting",
+    "hang up",
+    "salir de la llamada",
+    "salir de la reunion",
+    "salir de la reunión",
+    "abandonar llamada",
+    "abandonar la llamada",
+    "finalizar llamada"
+  ]).catch(() => false);
+  await sleep(1500);
+  await pageInstance.goto("about:blank", { waitUntil: "domcontentloaded", timeout: 10000 }).catch(() => {});
+  setState({
+    status: "idle",
+    meetUrl: "",
+    message: left || wasInMeet
+      ? `${displayName} salio de la reunion.`
+      : "No habia una reunion activa; el navegador quedo en blanco."
+  });
 }
 
 async function joinMeet(meetUrl) {
@@ -188,8 +235,11 @@ function html(req) {
       <input name="meetUrl" value="${defaultMeetUrl}">
       <button type="submit">Entrar a Meet</button>
     </form>
+    <form method="post" action="/leave">
+      <button type="submit">Salir de Meet</button>
+    </form>
     <form method="post" action="/close">
-      <button type="submit">Desconectar controlador</button>
+      <button type="submit">Desconectar controlador tecnico</button>
     </form>
     <h2>Estado</h2>
     <pre>${JSON.stringify(state, null, 2)}</pre>
@@ -228,12 +278,25 @@ app.post("/join", async (req, res, next) => {
   }
 });
 
+app.post("/leave", async (_req, res, next) => {
+  try {
+    leaveMeet().catch((error) => {
+      console.error(error);
+      setState({ status: "error", message: error.message });
+    });
+    res.redirect("/");
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/close", async (_req, res, next) => {
   try {
+    await leaveMeet().catch(() => {});
     await browser?.disconnect();
     browser = null;
     page = null;
-    setState({ status: "idle", message: "Controlador desconectado." });
+    setState({ status: "idle", meetUrl: "", message: "Controlador tecnico desconectado y reunion cerrada." });
     res.redirect("/");
   } catch (error) {
     next(error);

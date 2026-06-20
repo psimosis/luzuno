@@ -71,6 +71,7 @@ exec chromium \
   --disable-setuid-sandbox \
   --autoplay-policy=no-user-gesture-required \
   --use-fake-ui-for-media-stream \
+  --use-fake-device-for-media-stream \
   --remote-debugging-address=0.0.0.0 \
   --remote-debugging-port=9222 \
   --remote-allow-origins=* \
