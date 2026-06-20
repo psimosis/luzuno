@@ -109,6 +109,10 @@ async function cleanupMeetBridge(pageInstance) {
     if (window.__luzunoSenderRefreshInterval) {
       clearInterval(window.__luzunoSenderRefreshInterval);
     }
+    try {
+      window.__luzunoAgentPcmInput?.processor?.disconnect?.();
+      window.__luzunoAgentPcmInput?.keepAliveGain?.disconnect?.();
+    } catch {}
     window.__luzunoAnamClient = null;
     window.__luzunoSofiaStream = null;
     window.__luzunoSofiaStreamPromise = null;
@@ -426,6 +430,7 @@ async function injectSofiaMediaBridge(pageInstance) {
       scan();
       window.__luzunoAudioScanInterval = setInterval(scan, 1000);
       const inputSamples = new Uint8Array(inputAnalyser.fftSize);
+      window.__luzunoMeetAudioDestination = destination;
       window.__luzunoReadAudioDiagnostics = () => ({
         contextState: context.state,
         inputLevel: readLevel(inputAnalyser, inputSamples),
@@ -443,6 +448,76 @@ async function injectSofiaMediaBridge(pageInstance) {
       return destination.stream.getAudioTracks().length
         ? destination.stream
         : new MediaStream([createSilentAudioTrack()]);
+    }
+
+    function downsampleTo16Khz(input, inputSampleRate) {
+      const outputSampleRate = 16000;
+      if (inputSampleRate === outputSampleRate) return input;
+      const ratio = inputSampleRate / outputSampleRate;
+      const outputLength = Math.floor(input.length / ratio);
+      const output = new Float32Array(outputLength);
+      for (let i = 0; i < outputLength; i += 1) {
+        const start = Math.floor(i * ratio);
+        const end = Math.min(Math.floor((i + 1) * ratio), input.length);
+        let sum = 0;
+        let count = 0;
+        for (let j = start; j < end; j += 1) {
+          sum += input[j];
+          count += 1;
+        }
+        output[i] = count ? sum / count : 0;
+      }
+      return output;
+    }
+
+    function floatToPcm16(samples) {
+      const pcm = new Int16Array(samples.length);
+      for (let i = 0; i < samples.length; i += 1) {
+        const sample = Math.max(-1, Math.min(1, samples[i]));
+        pcm[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+      }
+      return new Uint8Array(pcm.buffer);
+    }
+
+    function startAgentPcmAudioBridge(client) {
+      const context = window.__luzunoMeetAudioContext;
+      const inputGain = window.__luzunoMeetInputGain;
+      if (!context || !inputGain || !client?.createAgentAudioInputStream) return;
+      const agentInput = client.createAgentAudioInputStream({
+        encoding: "pcm_s16le",
+        sampleRate: 16000,
+        channels: 1
+      });
+      const processor = context.createScriptProcessor(4096, 1, 1);
+      const keepAliveGain = context.createGain();
+      keepAliveGain.gain.value = 0;
+      let active = false;
+      let lastVoiceAt = 0;
+      inputGain.connect(processor);
+      processor.connect(keepAliveGain);
+      keepAliveGain.connect(context.destination);
+      processor.onaudioprocess = (event) => {
+        const input = event.inputBuffer.getChannelData(0);
+        let sum = 0;
+        for (let i = 0; i < input.length; i += 1) {
+          sum += input[i] * input[i];
+        }
+        const rms = Math.sqrt(sum / input.length);
+        const now = Date.now();
+        if (rms > 0.006) {
+          active = true;
+          lastVoiceAt = now;
+        }
+        if (active) {
+          const downsampled = downsampleTo16Khz(input, context.sampleRate);
+          agentInput.sendAudioChunk(floatToPcm16(downsampled));
+          if (now - lastVoiceAt > 900) {
+            agentInput.endSequence();
+            active = false;
+          }
+        }
+      };
+      window.__luzunoAgentPcmInput = { agentInput, processor, keepAliveGain };
     }
 
     async function waitForCapturedStream(video) {
@@ -476,7 +551,8 @@ async function injectSofiaMediaBridge(pageInstance) {
         video.style.cssText = "position:fixed;right:12px;bottom:12px;width:220px;height:124px;z-index:2147483647;border:2px solid #55c3f2;background:#10233a;";
         document.documentElement.append(video);
 
-        const micStream = await createMeetAudioInput();
+        await createMeetAudioInput();
+        const micStream = new MediaStream([createSilentAudioTrack()]);
         const client = window.anam.createClient(config.sessionToken, {
           ...(config.anamApiUrl ? { api: { baseUrl: config.anamApiUrl } } : {})
         });
@@ -489,6 +565,7 @@ async function injectSofiaMediaBridge(pageInstance) {
           });
         }
         await client.streamToVideoElement("luzuno-sofia-video", micStream);
+        startAgentPcmAudioBridge(client);
         await video.play().catch(() => {});
         const { videoTrack, audioTrack } = await waitForCapturedStream(video);
         audioTrack.enabled = Boolean(window.__luzunoMeetBridgeActive);
