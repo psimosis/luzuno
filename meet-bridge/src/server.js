@@ -271,13 +271,6 @@ async function injectSofiaMediaBridge(pageInstance) {
       return canvas.captureStream(15).getVideoTracks()[0];
     }
 
-    function createPlaceholderStream(wantsAudio, wantsVideo) {
-      return new MediaStream([
-        ...(wantsVideo ? [createFallbackVideoTrack()] : []),
-        ...(wantsAudio ? [createSilentAudioTrack()] : [])
-      ]);
-    }
-
     async function createMeetAudioInput() {
       const context = new AudioContext({ latencyHint: "interactive" });
       const destination = context.createMediaStreamDestination();
@@ -318,7 +311,7 @@ async function injectSofiaMediaBridge(pageInstance) {
         const sourceStream = video.captureStream ? video.captureStream(30) : video.mozCaptureStream?.(30);
         const videoTrack = sourceStream?.getVideoTracks().find((track) => track.readyState === "live");
         const audioTrack = sourceStream?.getAudioTracks().find((track) => track.readyState === "live");
-        if (videoTrack && video.videoWidth > 0 && video.videoHeight > 0) {
+        if (videoTrack && (video.videoWidth > 0 || video.readyState >= 2)) {
           return { videoTrack, audioTrack: audioTrack || createSilentAudioTrack() };
         }
         await wait(250);
@@ -358,8 +351,11 @@ async function injectSofiaMediaBridge(pageInstance) {
         await client.streamToVideoElement("luzuno-sofia-video", micStream);
         await video.play().catch(() => {});
         const { videoTrack, audioTrack } = await waitForCapturedStream(video);
+        audioTrack.enabled = Boolean(window.__luzunoMeetBridgeActive);
         const tracks = [videoTrack, audioTrack];
         const stream = new MediaStream(tracks);
+        window.__luzunoSofiaAudioTrack = audioTrack;
+        window.__luzunoSofiaVideoTrack = videoTrack;
         window.__luzunoSofiaStream = stream;
         window.__luzunoMeetBridgeState = { status: "streaming", message: "Sofia esta conectada a la camara y microfono de Meet." };
         return stream;
@@ -371,13 +367,14 @@ async function injectSofiaMediaBridge(pageInstance) {
       const wantsVideo = Boolean(constraints.video);
       const wantsAudio = Boolean(constraints.audio);
       if (location.hostname === "meet.google.com" && (wantsVideo || wantsAudio)) {
-        if (!window.__luzunoMeetBridgeActive) {
-          return createPlaceholderStream(wantsAudio, wantsVideo);
-        }
         const sofiaStream = await createSofiaStream();
         return new MediaStream([
           ...(wantsVideo ? sofiaStream.getVideoTracks().map((track) => track.clone()) : []),
-          ...(wantsAudio ? sofiaStream.getAudioTracks().map((track) => track.clone()) : [])
+          ...(wantsAudio
+            ? (window.__luzunoMeetBridgeActive
+              ? sofiaStream.getAudioTracks().map((track) => track.clone())
+              : [createSilentAudioTrack()])
+            : [])
         ]);
       }
       return originalGetUserMedia(constraints);
@@ -391,7 +388,7 @@ async function injectSofiaMediaBridge(pageInstance) {
       window.__luzunoPeerConnections = peerConnections;
 
       async function replaceSenderTrack(sender, kind) {
-        if (!window.__luzunoMeetBridgeActive) return;
+        if (!window.__luzunoMeetBridgeActive && kind !== "video") return;
         try {
           const sofiaStream = await createSofiaStream();
           const sourceTrack = kind === "video"
@@ -428,6 +425,9 @@ async function injectSofiaMediaBridge(pageInstance) {
       window.__luzunoStartSofiaForMeet = async () => {
         window.__luzunoMeetBridgeActive = true;
         await createSofiaStream();
+        if (window.__luzunoSofiaAudioTrack) {
+          window.__luzunoSofiaAudioTrack.enabled = true;
+        }
         await replaceAllSenders();
         window.__luzunoForceSenderRefreshUntil = Date.now() + 12000;
         return window.__luzunoMeetBridgeState;
@@ -695,6 +695,8 @@ app.get("/media-state", async (_req, res, next) => {
           readyState: video.readyState,
           width: video.videoWidth,
           height: video.videoHeight,
+          paused: video.paused,
+          muted: video.muted,
           audioTracks: stream?.getAudioTracks().length || 0,
           videoTracks: stream?.getVideoTracks().length || 0
         };
