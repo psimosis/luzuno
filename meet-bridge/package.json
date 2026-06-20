@@ -8,6 +8,7 @@
     "check": "node --check src/server.js"
   },
   "dependencies": {
+    "@anam-ai/js-sdk": "^4.15.0",
     "express": "^5.1.0",
     "puppeteer-core": "^24.11.2"
   }

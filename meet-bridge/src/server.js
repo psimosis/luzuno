@@ -1,12 +1,21 @@
 import express from "express";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import puppeteer from "puppeteer-core";
 
 const app = express();
+const require = createRequire(import.meta.url);
 const port = Number(process.env.PORT || 3200);
 const debugUrl = process.env.MEET_BROWSER_DEBUG_URL || "http://meet-browser-sofia:9222";
 const defaultMeetUrl = process.env.MEET_DEFAULT_URL || "";
 const displayName = process.env.MEET_AGENT_DISPLAY_NAME || "Sofia";
 const vncPort = process.env.MEET_BROWSER_NOVNC_PORT || "7900";
+const anamApiUrl = process.env.ANAM_API_URL || "https://api.anam.ai";
+const anamApiKey = process.env.ANAM_API_KEY || "";
+const elevenLabsApiKey = process.env.SUPPORT_ELEVENLABS_API_KEY || process.env.ELEVENLABS_API_KEY || "";
+const meetAvatarId = process.env.MEET_ANAM_AVATAR_ID || process.env.SUPPORT_PERSONA_2_AVATAR_ID || "";
+const meetAgentId = process.env.MEET_ELEVENLABS_AGENT_ID || process.env.SUPPORT_PERSONA_2_AGENT_ID || "";
+const anamSdkSource = readFileSync(require.resolve("@anam-ai/js-sdk/dist/umd/anam.js"), "utf8");
 
 let browser;
 let page;
@@ -146,6 +155,168 @@ async function enableMediaIfOff(pageInstance) {
   ]).catch(() => false);
 }
 
+async function createAnamSessionToken() {
+  if (!anamApiKey) throw new Error("ANAM_API_KEY no esta configurada en meet-bridge.");
+  if (!elevenLabsApiKey) throw new Error("SUPPORT_ELEVENLABS_API_KEY no esta configurada en meet-bridge.");
+  if (!meetAvatarId || !meetAgentId) throw new Error("Sofia no tiene avatarId/agentId configurados para Meet.");
+
+  const signedUrlRes = await fetch(
+    `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${encodeURIComponent(meetAgentId)}`,
+    { headers: { "xi-api-key": elevenLabsApiKey } }
+  );
+  if (!signedUrlRes.ok) {
+    throw new Error(`ElevenLabs signed URL error: ${signedUrlRes.status} ${await signedUrlRes.text()}`);
+  }
+  const { signed_url: signedUrl } = await signedUrlRes.json();
+  const tokenRes = await fetch(`${anamApiUrl}/v1/auth/session-token`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${anamApiKey}`
+    },
+    body: JSON.stringify({
+      personaConfig: { avatarId: meetAvatarId },
+      environment: {
+        elevenLabsAgentSettings: { signedUrl, agentId: meetAgentId },
+        ...(process.env.ANAM_POD_NAME ? { podName: process.env.ANAM_POD_NAME } : {})
+      }
+    })
+  });
+  if (!tokenRes.ok) {
+    throw new Error(`Anam session token error: ${tokenRes.status} ${await tokenRes.text()}`);
+  }
+  const data = await tokenRes.json();
+  if (!data.sessionToken) throw new Error("Anam no devolvio sessionToken.");
+  return data.sessionToken;
+}
+
+async function injectSofiaMediaBridge(pageInstance) {
+  const sessionToken = await createAnamSessionToken();
+  await pageInstance.evaluateOnNewDocument(anamSdkSource);
+  await pageInstance.evaluateOnNewDocument((config) => {
+    const originalGetUserMedia = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
+    if (!originalGetUserMedia || window.__luzunoMeetBridgeInstalled) return;
+    window.__luzunoMeetBridgeInstalled = true;
+    window.__luzunoMeetBridgeState = { status: "installed", message: "Luzuno Meet bridge instalado." };
+
+    function wait(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    function loadAnamSdk() {
+      if (window.anam?.createClient) return;
+      if (!window.anam?.createClient) throw new Error("No se pudo cargar el SDK de Anam en Meet.");
+    }
+
+    function createSilentAudioTrack() {
+      const context = new AudioContext();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      gain.gain.value = 0;
+      const destination = context.createMediaStreamDestination();
+      oscillator.connect(gain);
+      gain.connect(destination);
+      oscillator.start();
+      return destination.stream.getAudioTracks()[0];
+    }
+
+    function createFallbackVideoTrack() {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1280;
+      canvas.height = 720;
+      const context = canvas.getContext("2d");
+      context.fillStyle = "#10233a";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = "#55c3f2";
+      context.font = "52px Arial";
+      context.fillText(config.displayName, 72, 120);
+      return canvas.captureStream(15).getVideoTracks()[0];
+    }
+
+    async function createMeetAudioInput() {
+      const context = new AudioContext();
+      const destination = context.createMediaStreamDestination();
+      const connected = new WeakSet();
+
+      const connectElement = (element) => {
+        if (connected.has(element) || element.id === "luzuno-sofia-video") return;
+        if (typeof element.captureStream !== "function") return;
+        try {
+          const stream = element.captureStream();
+          if (!stream.getAudioTracks().length) return;
+          const source = context.createMediaStreamSource(stream);
+          source.connect(destination);
+          connected.add(element);
+        } catch {}
+      };
+
+      const scan = () => {
+        document.querySelectorAll("audio, video").forEach(connectElement);
+      };
+      scan();
+      setInterval(scan, 1000);
+
+      const fallback = await originalGetUserMedia({ audio: true }).catch(() => null);
+      if (!destination.stream.getAudioTracks().length && fallback?.getAudioTracks().length) {
+        try {
+          context.createMediaStreamSource(fallback).connect(destination);
+        } catch {}
+      }
+      return destination.stream.getAudioTracks().length ? destination.stream : fallback || new MediaStream([createSilentAudioTrack()]);
+    }
+
+    async function createSofiaStream() {
+      if (window.__luzunoSofiaStreamPromise) return window.__luzunoSofiaStreamPromise;
+      window.__luzunoSofiaStreamPromise = (async () => {
+        window.__luzunoMeetBridgeState = { status: "starting", message: "Iniciando Sofia en Anam." };
+        loadAnamSdk();
+
+        const video = document.createElement("video");
+        video.id = "luzuno-sofia-video";
+        video.autoplay = true;
+        video.playsInline = true;
+        video.style.cssText = "position:fixed;right:12px;bottom:12px;width:220px;height:124px;z-index:2147483647;border:2px solid #55c3f2;background:#10233a;";
+        document.documentElement.append(video);
+
+        const micStream = await createMeetAudioInput();
+        const client = window.anam.createClient(config.sessionToken, {
+          ...(config.anamApiUrl ? { api: { baseUrl: config.anamApiUrl } } : {})
+        });
+        window.__luzunoAnamClient = client;
+        await client.streamToVideoElement("luzuno-sofia-video", micStream);
+        await video.play().catch(() => {});
+        await wait(1000);
+
+        const sourceStream = video.captureStream ? video.captureStream(30) : video.mozCaptureStream?.(30);
+        const tracks = [];
+        const videoTrack = sourceStream?.getVideoTracks()[0] || createFallbackVideoTrack();
+        const audioTrack = sourceStream?.getAudioTracks()[0] || createSilentAudioTrack();
+        tracks.push(videoTrack, audioTrack);
+        window.__luzunoMeetBridgeState = { status: "streaming", message: "Sofia esta conectada a la camara y microfono de Meet." };
+        return new MediaStream(tracks);
+      })();
+      return window.__luzunoSofiaStreamPromise;
+    }
+
+    navigator.mediaDevices.getUserMedia = async (constraints = {}) => {
+      const wantsVideo = Boolean(constraints.video);
+      const wantsAudio = Boolean(constraints.audio);
+      if (location.hostname === "meet.google.com" && (wantsVideo || wantsAudio)) {
+        const sofiaStream = await createSofiaStream();
+        return new MediaStream([
+          ...(wantsVideo ? sofiaStream.getVideoTracks() : []),
+          ...(wantsAudio ? sofiaStream.getAudioTracks() : [])
+        ]);
+      }
+      return originalGetUserMedia(constraints);
+    };
+  }, {
+    sessionToken,
+    anamApiUrl,
+    displayName
+  });
+}
+
 async function maybePrepareMeet(pageInstance) {
   await pageInstance.waitForNetworkIdle({ idleTime: 1000, timeout: 10000 }).catch(() => {});
   await sleep(2500);
@@ -183,6 +354,7 @@ async function leaveMeet() {
 async function joinMeet(meetUrl) {
   const pageInstance = await activePage();
   setState({ status: "joining", meetUrl, message: "Abriendo Google Meet." });
+  await injectSofiaMediaBridge(pageInstance);
   await pageInstance.goto(meetUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
   await maybePrepareMeet(pageInstance);
   const joined = await clickButtonByText(pageInstance, [
@@ -250,6 +422,40 @@ function html(req) {
 
 app.get("/", (req, res) => res.type("html").send(html(req)));
 app.get("/health", (_req, res) => res.json({ ok: true, state }));
+app.get("/media-state", async (_req, res, next) => {
+  try {
+    const pageInstance = await activePage();
+    const mediaState = await pageInstance.evaluate(() => ({
+      url: location.href,
+      bridge: window.__luzunoMeetBridgeState || null,
+      hasAnamClient: Boolean(window.__luzunoAnamClient),
+      localVideo: (() => {
+        const video = document.getElementById("luzuno-sofia-video");
+        if (!video) return null;
+        const stream = video.captureStream?.();
+        return {
+          readyState: video.readyState,
+          width: video.videoWidth,
+          height: video.videoHeight,
+          audioTracks: stream?.getAudioTracks().length || 0,
+          videoTracks: stream?.getVideoTracks().length || 0
+        };
+      })(),
+      mediaElements: Array.from(document.querySelectorAll("audio, video")).map((element) => ({
+        id: element.id || "",
+        tag: element.tagName,
+        muted: element.muted,
+        paused: element.paused,
+        readyState: element.readyState,
+        width: element.videoWidth || 0,
+        height: element.videoHeight || 0
+      })).slice(0, 20)
+    })).catch((error) => ({ error: error.message }));
+    res.json({ ok: true, state, mediaState });
+  } catch (error) {
+    next(error);
+  }
+});
 
 app.get("/login", async (_req, res, next) => {
   try {
