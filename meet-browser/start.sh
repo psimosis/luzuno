@@ -6,8 +6,11 @@ SOFIA_PROFILE_DIR="${SOFIA_PROFILE_DIR:-/data/sofia-profile}"
 SOFIA_SOURCE_URL="${SOFIA_SOURCE_URL:-http://meet-bridge-sofia:3200/sofia-source}"
 VIRTUAL_CAMERA_DEVICE="${VIRTUAL_CAMERA_DEVICE:-/dev/video10}"
 ENABLE_VIRTUAL_CAMERA="${ENABLE_VIRTUAL_CAMERA:-0}"
+PULSE_SOCKET_DIR="${PULSE_SOCKET_DIR:-/tmp/luzuno-pulse}"
+PULSE_SERVER="unix:${PULSE_SOCKET_DIR}/native"
+export PULSE_SERVER
 
-mkdir -p "$MEET_PROFILE_DIR" "$SOFIA_PROFILE_DIR"
+mkdir -p "$MEET_PROFILE_DIR" "$SOFIA_PROFILE_DIR" "$PULSE_SOCKET_DIR"
 rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 /tmp/.X100-lock /tmp/.X11-unix/X100
 rm -f "$MEET_PROFILE_DIR"/SingletonCookie "$MEET_PROFILE_DIR"/SingletonLock "$MEET_PROFILE_DIR"/SingletonSocket
 rm -f "$SOFIA_PROFILE_DIR"/SingletonCookie "$SOFIA_PROFILE_DIR"/SingletonLock "$SOFIA_PROFILE_DIR"/SingletonSocket
@@ -20,10 +23,11 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 Xvfb :99 -screen 0 1366x768x24 -ac +extension RANDR &
-Xvfb :100 -screen 0 720x480x24 -ac +extension RANDR &
+Xvfb :100 -screen 0 480x270x24 -ac +extension RANDR &
 sleep 1
 cat >/tmp/luzuno-pulse.pa <<'PA'
 .fail
+load-module module-native-protocol-unix auth-anonymous=1 socket=/tmp/luzuno-pulse/native
 load-module module-null-sink sink_name=meet_sink sink_properties=device.description=Meet_Output
 load-module module-null-sink sink_name=sofia_sink sink_properties=device.description=Sofia_Output
 load-module module-remap-source source_name=meet_audio_source master=meet_sink.monitor source_properties=device.description=Meet_Audio_For_Sofia
@@ -92,7 +96,7 @@ PY
     do
       sleep 2
     done
-    DISPLAY=:100 PULSE_SINK=sofia_sink PULSE_SOURCE=meet_audio_source chromium \
+    DISPLAY=:100 PULSE_SINK=sofia_sink PULSE_SOURCE=meet_audio_source PULSE_SERVER="$PULSE_SERVER" chromium \
       --no-sandbox \
       --disable-dev-shm-usage \
       --disable-gpu \
@@ -101,12 +105,12 @@ PY
       --use-fake-ui-for-media-stream \
       --unsafely-treat-insecure-origin-as-secure=http://meet-bridge-sofia:3200 \
       --user-data-dir="$SOFIA_PROFILE_DIR" \
-      --window-size=720,480 \
+      --window-size=480,270 \
       "$SOFIA_SOURCE_URL"
   ) &
 
   if [ -e "$VIRTUAL_CAMERA_DEVICE" ]; then
-    ffmpeg -loglevel warning -f x11grab -framerate 30 -video_size 720x480 -i :100 \
+    ffmpeg -loglevel warning -f x11grab -framerate 10 -video_size 480x270 -i :100 \
       -vf format=yuv420p -f v4l2 "$VIRTUAL_CAMERA_DEVICE" &
     sleep 4
   else
@@ -114,7 +118,7 @@ PY
   fi
 fi
 
-exec env PULSE_SINK=meet_sink PULSE_SOURCE=sofia_audio_source chromium \
+exec env PULSE_SINK=meet_sink PULSE_SOURCE=sofia_audio_source PULSE_SERVER="$PULSE_SERVER" chromium \
   --no-sandbox \
   --disable-dev-shm-usage \
   --disable-gpu \

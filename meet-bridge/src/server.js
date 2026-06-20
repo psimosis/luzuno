@@ -15,6 +15,8 @@ const anamApiKey = process.env.ANAM_API_KEY || "";
 const elevenLabsApiKey = process.env.SUPPORT_ELEVENLABS_API_KEY || process.env.ELEVENLABS_API_KEY || "";
 const meetAvatarId = process.env.MEET_ANAM_AVATAR_ID || process.env.SUPPORT_PERSONA_2_AVATAR_ID || "";
 const meetAgentId = process.env.MEET_ELEVENLABS_AGENT_ID || process.env.SUPPORT_PERSONA_2_AGENT_ID || "";
+const useVirtualDevices = process.env.MEET_USE_VIRTUAL_DEVICES !== "0";
+const debugMedia = process.env.MEET_DEBUG_MEDIA === "1";
 const anamSdkSource = readFileSync(require.resolve("@anam-ai/js-sdk/dist/umd/anam.js"), "utf8");
 
 let browser;
@@ -176,6 +178,7 @@ async function readMediaDiagnosticSnapshot(pageInstance) {
 }
 
 function startMediaDiagnostics(pageInstance) {
+  if (!debugMedia) return;
   stopMediaDiagnostics();
   const startedAt = Date.now();
   mediaDiagnosticsTimer = setInterval(async () => {
@@ -816,7 +819,9 @@ async function leaveMeet() {
 async function joinMeet(meetUrl) {
   const pageInstance = await freshMeetPage();
   setState({ status: "joining", meetUrl, message: "Abriendo Google Meet." });
-  await injectSofiaMediaBridge(pageInstance);
+  if (!useVirtualDevices) {
+    await injectSofiaMediaBridge(pageInstance);
+  }
   await pageInstance.goto(meetUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
   await maybePrepareMeet(pageInstance);
   const joined = await clickButtonByText(pageInstance, [
@@ -833,9 +838,11 @@ async function joinMeet(meetUrl) {
   ]).catch(() => false);
   await sleep(1500);
   if (joined) {
-    await pageInstance.evaluate(async () => {
-      await window.__luzunoStartSofiaForMeet?.();
-    }).catch(() => {});
+    if (!useVirtualDevices) {
+      await pageInstance.evaluate(async () => {
+        await window.__luzunoStartSofiaForMeet?.();
+      }).catch(() => {});
+    }
     startMediaDiagnostics(pageInstance);
   }
   setState({

@@ -100,7 +100,7 @@ services:
     environment:
       SOFIA_SOURCE_URL: http://meet-bridge-sofia:3200/sofia-source
       VIRTUAL_CAMERA_DEVICE: /dev/video0
-      ENABLE_VIRTUAL_CAMERA: "0"
+      ENABLE_VIRTUAL_CAMERA: "1"
     ports:
       - "7900:7900"
       - "9223:9223"
@@ -130,6 +130,8 @@ services:
       SUPPORT_PERSONA_2_AGENT_ID: ${SUPPORT_PERSONA_2_AGENT_ID}
       MEET_ANAM_AVATAR_ID: ${MEET_ANAM_AVATAR_ID:-}
       MEET_ELEVENLABS_AGENT_ID: ${MEET_ELEVENLABS_AGENT_ID:-}
+      MEET_USE_VIRTUAL_DEVICES: "1"
+      MEET_DEBUG_MEDIA: "0"
     ports:
       - "3200:3200"
     networks:
