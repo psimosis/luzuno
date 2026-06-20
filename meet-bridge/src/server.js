@@ -83,6 +83,42 @@ async function activePage() {
   return page;
 }
 
+async function cleanupMeetBridge(pageInstance) {
+  await pageInstance.evaluate(async () => {
+    try {
+      await window.__luzunoAnamClient?.stopStreaming?.();
+    } catch {}
+    try {
+      window.__luzunoSofiaStream?.getTracks?.().forEach((track) => track.stop());
+    } catch {}
+    try {
+      window.__luzunoMeetAudioContext?.close?.();
+    } catch {}
+    if (window.__luzunoAudioScanInterval) {
+      clearInterval(window.__luzunoAudioScanInterval);
+    }
+    if (window.__luzunoSenderRefreshInterval) {
+      clearInterval(window.__luzunoSenderRefreshInterval);
+    }
+    window.__luzunoAnamClient = null;
+    window.__luzunoSofiaStream = null;
+    window.__luzunoSofiaStreamPromise = null;
+    window.__luzunoMeetBridgeState = { status: "stopped", message: "Sofia detenida." };
+  }).catch(() => {});
+}
+
+async function freshMeetPage() {
+  const instance = await browserInstance();
+  if (page && !page.isClosed()) {
+    await cleanupMeetBridge(page);
+    await page.close().catch(() => {});
+  }
+  page = await instance.newPage();
+  page.setDefaultTimeout(5000);
+  await page.bringToFront().catch(() => {});
+  return page;
+}
+
 async function clickButtonByText(pageInstance, labels) {
   return pageInstance.evaluate((buttonLabels) => {
     const normalizedLabels = buttonLabels.map((item) => item.toLowerCase());
@@ -238,9 +274,11 @@ async function injectSofiaMediaBridge(pageInstance) {
       const context = new AudioContext();
       const destination = context.createMediaStreamDestination();
       const connected = new WeakSet();
+      window.__luzunoMeetAudioContext = context;
 
       const connectElement = (element) => {
         if (connected.has(element) || element.id === "luzuno-sofia-video") return;
+        if (element.muted || element.paused) return;
         if (typeof element.captureStream !== "function") return;
         try {
           const stream = element.captureStream();
@@ -255,15 +293,10 @@ async function injectSofiaMediaBridge(pageInstance) {
         document.querySelectorAll("audio, video").forEach(connectElement);
       };
       scan();
-      setInterval(scan, 1000);
-
-      const fallback = await originalGetUserMedia({ audio: true }).catch(() => null);
-      if (!destination.stream.getAudioTracks().length && fallback?.getAudioTracks().length) {
-        try {
-          context.createMediaStreamSource(fallback).connect(destination);
-        } catch {}
-      }
-      return destination.stream.getAudioTracks().length ? destination.stream : fallback || new MediaStream([createSilentAudioTrack()]);
+      window.__luzunoAudioScanInterval = setInterval(scan, 1000);
+      return destination.stream.getAudioTracks().length
+        ? destination.stream
+        : new MediaStream([createSilentAudioTrack()]);
     }
 
     async function createSofiaStream() {
@@ -284,6 +317,13 @@ async function injectSofiaMediaBridge(pageInstance) {
           ...(config.anamApiUrl ? { api: { baseUrl: config.anamApiUrl } } : {})
         });
         window.__luzunoAnamClient = client;
+        if (window.anam?.AnamEvent?.CONNECTION_CLOSED) {
+          client.addListener(window.anam.AnamEvent.CONNECTION_CLOSED, () => {
+            window.__luzunoMeetBridgeState = { status: "anam_closed", message: "Anam cerro la conexion de Sofia." };
+            window.__luzunoSofiaStreamPromise = null;
+            window.__luzunoSofiaStream = null;
+          });
+        }
         await client.streamToVideoElement("luzuno-sofia-video", micStream);
         await video.play().catch(() => {});
         await wait(1000);
@@ -293,8 +333,10 @@ async function injectSofiaMediaBridge(pageInstance) {
         const videoTrack = sourceStream?.getVideoTracks()[0] || createFallbackVideoTrack();
         const audioTrack = sourceStream?.getAudioTracks()[0] || createSilentAudioTrack();
         tracks.push(videoTrack, audioTrack);
+        const stream = new MediaStream(tracks);
+        window.__luzunoSofiaStream = stream;
         window.__luzunoMeetBridgeState = { status: "streaming", message: "Sofia esta conectada a la camara y microfono de Meet." };
-        return new MediaStream(tracks);
+        return stream;
       })();
       return window.__luzunoSofiaStreamPromise;
     }
@@ -305,8 +347,8 @@ async function injectSofiaMediaBridge(pageInstance) {
       if (location.hostname === "meet.google.com" && (wantsVideo || wantsAudio)) {
         const sofiaStream = await createSofiaStream();
         return new MediaStream([
-          ...(wantsVideo ? sofiaStream.getVideoTracks() : []),
-          ...(wantsAudio ? sofiaStream.getAudioTracks() : [])
+          ...(wantsVideo ? sofiaStream.getVideoTracks().map((track) => track.clone()) : []),
+          ...(wantsAudio ? sofiaStream.getAudioTracks().map((track) => track.clone()) : [])
         ]);
       }
       return originalGetUserMedia(constraints);
@@ -316,13 +358,16 @@ async function injectSofiaMediaBridge(pageInstance) {
     if (OriginalPeerConnection?.prototype && !OriginalPeerConnection.prototype.__luzunoPatched) {
       const originalAddTrack = OriginalPeerConnection.prototype.addTrack;
       const originalAddTransceiver = OriginalPeerConnection.prototype.addTransceiver;
+      const peerConnections = new Set();
+      window.__luzunoPeerConnections = peerConnections;
 
       async function replaceSenderTrack(sender, kind) {
         try {
           const sofiaStream = await createSofiaStream();
-          const replacement = kind === "video"
+          const sourceTrack = kind === "video"
             ? sofiaStream.getVideoTracks()[0]
             : sofiaStream.getAudioTracks()[0];
+          const replacement = sourceTrack?.clone();
           if (replacement && sender?.replaceTrack) {
             replacement.enabled = true;
             await sender.replaceTrack(replacement);
@@ -340,6 +385,7 @@ async function injectSofiaMediaBridge(pageInstance) {
       }
 
       OriginalPeerConnection.prototype.addTrack = function patchedAddTrack(track, ...args) {
+        peerConnections.add(this);
         const sender = originalAddTrack.call(this, track, ...args);
         if (track?.kind === "audio" || track?.kind === "video") {
           replaceSenderTrack(sender, track.kind);
@@ -348,6 +394,7 @@ async function injectSofiaMediaBridge(pageInstance) {
       };
 
       OriginalPeerConnection.prototype.addTransceiver = function patchedAddTransceiver(trackOrKind, init) {
+        peerConnections.add(this);
         const transceiver = originalAddTransceiver.call(this, trackOrKind, init);
         const kind = typeof trackOrKind === "string" ? trackOrKind : trackOrKind?.kind;
         if ((kind === "audio" || kind === "video") && transceiver?.sender) {
@@ -355,6 +402,17 @@ async function injectSofiaMediaBridge(pageInstance) {
         }
         return transceiver;
       };
+
+      window.__luzunoSenderRefreshInterval = setInterval(() => {
+        for (const connection of peerConnections) {
+          for (const sender of connection.getSenders()) {
+            const kind = sender.track?.kind;
+            if ((kind === "audio" || kind === "video") && sender.track.readyState !== "live") {
+              replaceSenderTrack(sender, kind);
+            }
+          }
+        }
+      }, 3000);
 
       OriginalPeerConnection.prototype.__luzunoPatched = true;
     }
@@ -389,6 +447,7 @@ async function leaveMeet() {
     "finalizar llamada"
   ]).catch(() => false);
   await sleep(1500);
+  await cleanupMeetBridge(pageInstance);
   await pageInstance.goto("about:blank", { waitUntil: "domcontentloaded", timeout: 10000 }).catch(() => {});
   setState({
     status: "idle",
@@ -400,7 +459,7 @@ async function leaveMeet() {
 }
 
 async function joinMeet(meetUrl) {
-  const pageInstance = await activePage();
+  const pageInstance = await freshMeetPage();
   setState({ status: "joining", meetUrl, message: "Abriendo Google Meet." });
   await injectSofiaMediaBridge(pageInstance);
   await pageInstance.goto(meetUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
@@ -548,14 +607,31 @@ app.get("/media-state", async (_req, res, next) => {
         : [];
       const probe = navigator.mediaDevices?.getUserMedia
         ? await navigator.mediaDevices.getUserMedia({ audio: true, video: true }).then((stream) => {
-          const result = {
+          return {
             audioTracks: stream.getAudioTracks().map((track) => ({ label: track.label, enabled: track.enabled, muted: track.muted, readyState: track.readyState })),
             videoTracks: stream.getVideoTracks().map((track) => ({ label: track.label, enabled: track.enabled, muted: track.muted, readyState: track.readyState }))
           };
-          stream.getTracks().forEach((track) => track.stop());
-          return result;
         }).catch((error) => ({ error: error.message }))
         : null;
+      const peerConnections = Array.from(window.__luzunoPeerConnections || []).map((connection) => ({
+        connectionState: connection.connectionState,
+        iceConnectionState: connection.iceConnectionState,
+        signalingState: connection.signalingState,
+        senders: connection.getSenders().map((sender) => ({
+          kind: sender.track?.kind || "",
+          enabled: Boolean(sender.track?.enabled),
+          muted: Boolean(sender.track?.muted),
+          readyState: sender.track?.readyState || "",
+          label: sender.track?.label || ""
+        })),
+        receivers: connection.getReceivers().map((receiver) => ({
+          kind: receiver.track?.kind || "",
+          enabled: Boolean(receiver.track?.enabled),
+          muted: Boolean(receiver.track?.muted),
+          readyState: receiver.track?.readyState || "",
+          label: receiver.track?.label || ""
+        }))
+      }));
       const localVideo = (() => {
         const video = document.getElementById("luzuno-sofia-video");
         if (!video) return null;
@@ -574,6 +650,7 @@ app.get("/media-state", async (_req, res, next) => {
         hasAnamClient: Boolean(window.__luzunoAnamClient),
         devices,
         probe,
+        peerConnections,
         localVideo,
         mediaElements: Array.from(document.querySelectorAll("audio, video")).map((element) => ({
           id: element.id || "",
