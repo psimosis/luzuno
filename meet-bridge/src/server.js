@@ -100,9 +100,6 @@ async function cleanupMeetBridge(pageInstance) {
     if (window.__luzunoSenderRefreshInterval) {
       clearInterval(window.__luzunoSenderRefreshInterval);
     }
-    if (window.__luzunoSofiaOutputGuardInterval) {
-      clearInterval(window.__luzunoSofiaOutputGuardInterval);
-    }
     window.__luzunoAnamClient = null;
     window.__luzunoSofiaStream = null;
     window.__luzunoSofiaStreamPromise = null;
@@ -321,41 +318,16 @@ async function injectSofiaMediaBridge(pageInstance) {
         const sourceStream = video.captureStream ? video.captureStream(30) : video.mozCaptureStream?.(30);
         const videoTrack = sourceStream?.getVideoTracks().find((track) => track.readyState === "live");
         const audioTrack = sourceStream?.getAudioTracks().find((track) => track.readyState === "live");
-        if (videoTrack && audioTrack && video.videoWidth > 0 && video.videoHeight > 0) {
-          return { sourceStream, videoTrack, audioTrack };
+        if (videoTrack && video.videoWidth > 0 && video.videoHeight > 0) {
+          return { videoTrack, audioTrack: audioTrack || createSilentAudioTrack() };
         }
         await wait(250);
       }
       const sourceStream = video.captureStream ? video.captureStream(30) : video.mozCaptureStream?.(30);
       return {
-        sourceStream,
         videoTrack: sourceStream?.getVideoTracks()[0] || createFallbackVideoTrack(),
         audioTrack: sourceStream?.getAudioTracks()[0] || createSilentAudioTrack()
       };
-    }
-
-    function guardMeetInputFromSofiaOutput(sourceStream) {
-      const sourceTrack = sourceStream?.getAudioTracks?.()[0];
-      const context = window.__luzunoMeetAudioContext;
-      const inputGain = window.__luzunoMeetInputGain;
-      if (!sourceTrack || !context || !inputGain) return;
-      try {
-        const analyser = context.createAnalyser();
-        analyser.fftSize = 512;
-        const monitorSource = context.createMediaStreamSource(new MediaStream([sourceTrack.clone()]));
-        monitorSource.connect(analyser);
-        const samples = new Uint8Array(analyser.fftSize);
-        window.__luzunoSofiaOutputGuardInterval = setInterval(() => {
-          analyser.getByteTimeDomainData(samples);
-          let sum = 0;
-          for (const sample of samples) {
-            const centered = sample - 128;
-            sum += centered * centered;
-          }
-          const rms = Math.sqrt(sum / samples.length);
-          inputGain.gain.value = rms > 6 ? 0 : 1;
-        }, 80);
-      } catch {}
     }
 
     async function createSofiaStream() {
@@ -385,8 +357,7 @@ async function injectSofiaMediaBridge(pageInstance) {
         }
         await client.streamToVideoElement("luzuno-sofia-video", micStream);
         await video.play().catch(() => {});
-        const { sourceStream, videoTrack, audioTrack } = await waitForCapturedStream(video);
-        guardMeetInputFromSofiaOutput(sourceStream);
+        const { videoTrack, audioTrack } = await waitForCapturedStream(video);
         const tracks = [videoTrack, audioTrack];
         const stream = new MediaStream(tracks);
         window.__luzunoSofiaStream = stream;
