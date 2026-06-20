@@ -19,6 +19,7 @@ const anamSdkSource = readFileSync(require.resolve("@anam-ai/js-sdk/dist/umd/ana
 
 let browser;
 let page;
+let mediaDiagnosticsTimer;
 let state = {
   status: "idle",
   meetUrl: "",
@@ -42,6 +43,13 @@ function sleep(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function stopMediaDiagnostics() {
+  if (mediaDiagnosticsTimer) {
+    clearInterval(mediaDiagnosticsTimer);
+    mediaDiagnosticsTimer = null;
+  }
 }
 
 async function browserWebSocketEndpoint() {
@@ -84,6 +92,7 @@ async function activePage() {
 }
 
 async function cleanupMeetBridge(pageInstance) {
+  stopMediaDiagnostics();
   await pageInstance.evaluate(async () => {
     try {
       await window.__luzunoAnamClient?.stopStreaming?.();
@@ -105,6 +114,73 @@ async function cleanupMeetBridge(pageInstance) {
     window.__luzunoSofiaStreamPromise = null;
     window.__luzunoMeetBridgeState = { status: "stopped", message: "Sofia detenida." };
   }).catch(() => {});
+}
+
+async function readMediaDiagnosticSnapshot(pageInstance) {
+  return pageInstance.evaluate(() => {
+    const peerConnections = Array.from(window.__luzunoPeerConnections || []).map((connection) => ({
+      connectionState: connection.connectionState,
+      iceConnectionState: connection.iceConnectionState,
+      signalingState: connection.signalingState,
+      senders: connection.getSenders().map((sender) => ({
+        kind: sender.track?.kind || "",
+        enabled: Boolean(sender.track?.enabled),
+        muted: Boolean(sender.track?.muted),
+        readyState: sender.track?.readyState || "",
+        label: sender.track?.label || ""
+      })),
+      receivers: connection.getReceivers().map((receiver) => ({
+        kind: receiver.track?.kind || "",
+        enabled: Boolean(receiver.track?.enabled),
+        muted: Boolean(receiver.track?.muted),
+        readyState: receiver.track?.readyState || "",
+        label: receiver.track?.label || ""
+      }))
+    }));
+    const localVideoElement = document.getElementById("luzuno-sofia-video");
+    const localVideoStream = localVideoElement?.captureStream?.();
+    return {
+      url: location.href,
+      bridge: window.__luzunoMeetBridgeState || null,
+      audio: window.__luzunoReadAudioDiagnostics?.() || null,
+      localVideo: localVideoElement ? {
+        readyState: localVideoElement.readyState,
+        width: localVideoElement.videoWidth,
+        height: localVideoElement.videoHeight,
+        paused: localVideoElement.paused,
+        audioTracks: localVideoStream?.getAudioTracks().map((track) => ({
+          enabled: track.enabled,
+          muted: track.muted,
+          readyState: track.readyState,
+          label: track.label
+        })) || [],
+        videoTracks: localVideoStream?.getVideoTracks().map((track) => ({
+          enabled: track.enabled,
+          muted: track.muted,
+          readyState: track.readyState,
+          label: track.label
+        })) || []
+      } : null,
+      peerConnections
+    };
+  });
+}
+
+function startMediaDiagnostics(pageInstance) {
+  stopMediaDiagnostics();
+  const startedAt = Date.now();
+  mediaDiagnosticsTimer = setInterval(async () => {
+    if (Date.now() - startedAt > 90000) {
+      stopMediaDiagnostics();
+      return;
+    }
+    try {
+      const snapshot = await readMediaDiagnosticSnapshot(pageInstance);
+      console.log(JSON.stringify({ type: "media_diagnostic", updatedAt: new Date().toISOString(), snapshot }));
+    } catch (error) {
+      console.log(JSON.stringify({ type: "media_diagnostic_error", message: error.message }));
+    }
+  }, 5000);
 }
 
 async function freshMeetPage() {
@@ -275,19 +351,43 @@ async function injectSofiaMediaBridge(pageInstance) {
       const context = new AudioContext({ latencyHint: "interactive" });
       const destination = context.createMediaStreamDestination();
       const inputGain = context.createGain();
+      const inputAnalyser = context.createAnalyser();
+      inputAnalyser.fftSize = 512;
       inputGain.gain.value = 1;
       inputGain.connect(destination);
+      inputGain.connect(inputAnalyser);
       const connectedTracks = new Set();
+      const receiverAnalysers = [];
       window.__luzunoMeetAudioContext = context;
       window.__luzunoMeetInputGain = inputGain;
+
+      function readLevel(analyser, samples) {
+        analyser.getByteTimeDomainData(samples);
+        let sum = 0;
+        for (const sample of samples) {
+          const centered = sample - 128;
+          sum += centered * centered;
+        }
+        return Math.round(Math.sqrt(sum / samples.length) * 100) / 100;
+      }
 
       const connectTrack = (track) => {
         if (!track || track.kind !== "audio" || track.readyState !== "live" || connectedTracks.has(track.id)) return;
         try {
           const stream = new MediaStream([track]);
           const source = context.createMediaStreamSource(stream);
+          const analyser = context.createAnalyser();
+          analyser.fftSize = 512;
           source.connect(inputGain);
+          source.connect(analyser);
           connectedTracks.add(track.id);
+          receiverAnalysers.push({
+            id: track.id,
+            label: track.label,
+            track,
+            analyser,
+            samples: new Uint8Array(analyser.fftSize)
+          });
         } catch {}
       };
 
@@ -300,6 +400,20 @@ async function injectSofiaMediaBridge(pageInstance) {
       };
       scan();
       window.__luzunoAudioScanInterval = setInterval(scan, 1000);
+      const inputSamples = new Uint8Array(inputAnalyser.fftSize);
+      window.__luzunoReadAudioDiagnostics = () => ({
+        contextState: context.state,
+        inputLevel: readLevel(inputAnalyser, inputSamples),
+        connectedTrackCount: connectedTracks.size,
+        receiverLevels: receiverAnalysers.map((item) => ({
+          id: item.id,
+          label: item.label,
+          enabled: item.track.enabled,
+          muted: item.track.muted,
+          readyState: item.track.readyState,
+          level: readLevel(item.analyser, item.samples)
+        }))
+      });
       return destination.stream.getAudioTracks().length
         ? destination.stream
         : new MediaStream([createSilentAudioTrack()]);
@@ -531,6 +645,7 @@ async function joinMeet(meetUrl) {
     await pageInstance.evaluate(async () => {
       await window.__luzunoStartSofiaForMeet?.();
     }).catch(() => {});
+    startMediaDiagnostics(pageInstance);
   }
   setState({
     status: joined ? "in_meeting" : "needs_attention",
@@ -705,6 +820,7 @@ app.get("/media-state", async (_req, res, next) => {
         url: location.href,
         bridge: window.__luzunoMeetBridgeState || null,
         hasAnamClient: Boolean(window.__luzunoAnamClient),
+        audio: window.__luzunoReadAudioDiagnostics?.() || null,
         devices,
         probe,
         peerConnections,
