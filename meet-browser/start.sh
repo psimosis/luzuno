@@ -9,6 +9,7 @@ ENABLE_VIRTUAL_CAMERA="${ENABLE_VIRTUAL_CAMERA:-0}"
 PULSE_SOCKET_DIR="${PULSE_SOCKET_DIR:-/tmp/luzuno-pulse}"
 PULSE_SERVER="unix:${PULSE_SOCKET_DIR}/native"
 export PULSE_SERVER
+export PULSE_LATENCY_MSEC="${PULSE_LATENCY_MSEC:-80}"
 
 mkdir -p "$MEET_PROFILE_DIR" "$SOFIA_PROFILE_DIR" "$PULSE_SOCKET_DIR"
 rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 /tmp/.X100-lock /tmp/.X11-unix/X100
@@ -28,10 +29,10 @@ sleep 1
 cat >/tmp/luzuno-pulse.pa <<'PA'
 .fail
 load-module module-native-protocol-unix auth-anonymous=1 socket=/tmp/luzuno-pulse/native
-load-module module-null-sink sink_name=meet_sink sink_properties=device.description=Meet_Output
-load-module module-null-sink sink_name=sofia_sink sink_properties=device.description=Sofia_Output
-load-module module-remap-source source_name=meet_audio_source master=meet_sink.monitor source_properties=device.description=Meet_Audio_For_Sofia
-load-module module-remap-source source_name=sofia_audio_source master=sofia_sink.monitor source_properties=device.description=Sofia_Audio_For_Meet
+load-module module-null-sink sink_name=meet_sink rate=48000 channels=1 sink_properties=device.description=Meet_Output
+load-module module-null-sink sink_name=sofia_sink rate=48000 channels=1 sink_properties=device.description=Sofia_Output
+load-module module-remap-source source_name=meet_audio_source master=meet_sink.monitor channels=1 source_properties=device.description=Meet_Audio_For_Sofia
+load-module module-remap-source source_name=sofia_audio_source master=sofia_sink.monitor channels=1 source_properties=device.description=Sofia_Audio_For_Meet
 set-default-sink meet_sink
 set-default-source sofia_audio_source
 PA
@@ -96,7 +97,7 @@ PY
     do
       sleep 2
     done
-    DISPLAY=:100 PULSE_SINK=sofia_sink PULSE_SOURCE=meet_audio_source PULSE_SERVER="$PULSE_SERVER" chromium \
+    DISPLAY=:100 PULSE_SINK=sofia_sink PULSE_SOURCE=meet_audio_source PULSE_SERVER="$PULSE_SERVER" PULSE_LATENCY_MSEC="$PULSE_LATENCY_MSEC" chromium \
       --no-sandbox \
       --disable-dev-shm-usage \
       --disable-gpu \
@@ -118,7 +119,7 @@ PY
   fi
 fi
 
-exec env PULSE_SINK=meet_sink PULSE_SOURCE=sofia_audio_source PULSE_SERVER="$PULSE_SERVER" chromium \
+exec env PULSE_SINK=meet_sink PULSE_SOURCE=sofia_audio_source PULSE_SERVER="$PULSE_SERVER" PULSE_LATENCY_MSEC="$PULSE_LATENCY_MSEC" chromium \
   --no-sandbox \
   --disable-dev-shm-usage \
   --disable-gpu \
