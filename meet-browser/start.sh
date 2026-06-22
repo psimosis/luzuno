@@ -29,10 +29,10 @@ sleep 1
 cat >/tmp/luzuno-pulse.pa <<'PA'
 .fail
 load-module module-native-protocol-unix auth-anonymous=1 socket=/tmp/luzuno-pulse/native
-load-module module-null-sink sink_name=meet_sink rate=48000 channels=1 sink_properties=device.description=Meet_Output
-load-module module-null-sink sink_name=sofia_sink rate=48000 channels=1 sink_properties=device.description=Sofia_Output
-load-module module-remap-source source_name=meet_audio_source master=meet_sink.monitor channels=1 source_properties=device.description=Meet_Audio_For_Sofia
-load-module module-remap-source source_name=sofia_audio_source master=sofia_sink.monitor channels=1 source_properties=device.description=Sofia_Audio_For_Meet
+load-module module-null-sink sink_name=meet_sink rate=48000 channels=2 channel_map=front-left,front-right sink_properties=device.description=Meet_Output
+load-module module-null-sink sink_name=sofia_sink rate=48000 channels=2 channel_map=front-left,front-right sink_properties=device.description=Sofia_Output
+load-module module-remap-source source_name=meet_audio_source master=meet_sink.monitor channels=2 channel_map=front-left,front-right source_properties=device.description=Meet_Audio_For_Sofia
+load-module module-remap-source source_name=sofia_audio_source master=sofia_sink.monitor channels=2 channel_map=front-left,front-right source_properties=device.description=Sofia_Audio_For_Meet
 set-default-sink meet_sink
 set-default-source sofia_audio_source
 PA
