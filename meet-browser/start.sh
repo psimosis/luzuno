@@ -18,6 +18,9 @@ rm -f "$MEET_PROFILE_DIR"/SingletonCookie "$MEET_PROFILE_DIR"/SingletonLock "$ME
 rm -f "$SOFIA_PROFILE_DIR"/SingletonCookie "$SOFIA_PROFILE_DIR"/SingletonLock "$SOFIA_PROFILE_DIR"/SingletonSocket
 
 cleanup() {
+  if [ -n "${pulse_supervisor_pid:-}" ]; then
+    kill "$pulse_supervisor_pid" >/dev/null 2>&1 || true
+  fi
   rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 /tmp/.X100-lock /tmp/.X11-unix/X100
   rm -f "$MEET_PROFILE_DIR"/SingletonCookie "$MEET_PROFILE_DIR"/SingletonLock "$MEET_PROFILE_DIR"/SingletonSocket
   rm -f "$SOFIA_PROFILE_DIR"/SingletonCookie "$SOFIA_PROFILE_DIR"/SingletonLock "$SOFIA_PROFILE_DIR"/SingletonSocket
@@ -37,12 +40,20 @@ load-module module-remap-source source_name=sofia_audio_source master=sofia_sink
 set-default-sink meet_sink
 set-default-source sofia_audio_source
 PA
-pulseaudio -nF /tmp/luzuno-pulse.pa --daemonize=no --exit-idle-time=-1 --log-target=stderr &
+(
+  while true; do
+    rm -f "${PULSE_SOCKET_DIR}/native"
+    pulseaudio -nF /tmp/luzuno-pulse.pa --daemonize=no --exit-idle-time=-1 --log-target=stderr
+    echo "PulseAudio exited; restarting in 1s." >&2
+    sleep 1
+  done
+) &
+pulse_supervisor_pid=$!
 for i in $(seq 1 50); do
   if PULSE_SERVER="$PULSE_SERVER" pactl info >/dev/null 2>&1; then
     break
   fi
-  if ! kill -0 "$!" >/dev/null 2>&1; then
+  if ! kill -0 "$pulse_supervisor_pid" >/dev/null 2>&1; then
     echo "PulseAudio exited before becoming ready." >&2
     exit 1
   fi
@@ -141,7 +152,7 @@ PY
   fi
 fi
 
-exec env PULSE_SINK=meet_sink PULSE_SOURCE=sofia_audio_source PULSE_SERVER="$PULSE_SERVER" PULSE_LATENCY_MSEC="$PULSE_LATENCY_MSEC" chromium \
+env PULSE_SINK=meet_sink PULSE_SOURCE=sofia_audio_source PULSE_SERVER="$PULSE_SERVER" PULSE_LATENCY_MSEC="$PULSE_LATENCY_MSEC" chromium \
   --no-sandbox \
   --disable-dev-shm-usage \
   --disable-gpu \
@@ -157,4 +168,6 @@ exec env PULSE_SINK=meet_sink PULSE_SOURCE=sofia_audio_source PULSE_SERVER="$PUL
   --remote-allow-origins=* \
   --user-data-dir="$MEET_PROFILE_DIR" \
   --window-size=1366,768 \
-  about:blank
+  about:blank &
+chrome_pid=$!
+wait "$chrome_pid"

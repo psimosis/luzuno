@@ -375,7 +375,12 @@ async function clickButtonByTextWithRetry(pageInstance, labels, attempts = 20, i
 
 async function clickButtonByAria(pageInstance, labels) {
   return pageInstance.evaluate((buttonLabels) => {
-    const normalizedLabels = buttonLabels.map((item) => item.toLowerCase());
+    const normalize = (value) => (value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+    const normalizedLabels = buttonLabels.map(normalize);
     const buttons = Array.from(document.querySelectorAll("button, [role='button']"));
     const button = buttons.find((candidate) => {
       const label = [
@@ -383,8 +388,9 @@ async function clickButtonByAria(pageInstance, labels) {
         candidate.getAttribute("data-tooltip"),
         candidate.innerText,
         candidate.textContent
-      ].filter(Boolean).join(" ").toLowerCase();
-      return normalizedLabels.some((item) => label.includes(item));
+      ].filter(Boolean).join(" ");
+      const normalizedLabel = normalize(label);
+      return normalizedLabels.some((item) => normalizedLabel.includes(item));
     });
     if (!button) return false;
     button.click();
