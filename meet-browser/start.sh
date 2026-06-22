@@ -55,8 +55,8 @@ def pipe(source, target):
         source.close()
         target.close()
 
-def forward_client(client):
-    upstream = socket.create_connection(("127.0.0.1", 9222))
+def forward_client(client, upstream_port):
+    upstream = socket.create_connection(("127.0.0.1", upstream_port))
     try:
         first = b""
         while b"\r\n\r\n" not in first and len(first) < 65536:
@@ -69,7 +69,7 @@ def forward_client(client):
             rewritten = []
             for line in headers.split(b"\r\n"):
                 if line.lower().startswith(b"host:"):
-                    rewritten.append(b"Host: 127.0.0.1:9222")
+                    rewritten.append(f"Host: 127.0.0.1:{upstream_port}".encode())
                 else:
                     rewritten.append(line)
             upstream.sendall(b"\r\n".join(rewritten) + separator + body)
@@ -79,13 +79,17 @@ def forward_client(client):
         client.close()
         upstream.close()
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-server.bind(("0.0.0.0", 9223))
-server.listen(20)
-while True:
-    client, _ = server.accept()
-    threading.Thread(target=forward_client, args=(client,), daemon=True).start()
+def serve(listen_port, upstream_port):
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("0.0.0.0", listen_port))
+    server.listen(20)
+    while True:
+        client, _ = server.accept()
+        threading.Thread(target=forward_client, args=(client, upstream_port), daemon=True).start()
+
+threading.Thread(target=serve, args=(9223, 9222), daemon=True).start()
+serve(9225, 9224)
 PY
 
 if [ "$ENABLE_VIRTUAL_CAMERA" = "1" ]; then

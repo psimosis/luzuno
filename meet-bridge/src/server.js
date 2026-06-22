@@ -7,6 +7,7 @@ const app = express();
 const require = createRequire(import.meta.url);
 const port = Number(process.env.PORT || 3200);
 const debugUrl = process.env.MEET_BROWSER_DEBUG_URL || "http://meet-browser-sofia:9222";
+const sofiaDebugUrl = process.env.SOFIA_BROWSER_DEBUG_URL || "http://meet-browser-sofia:9225";
 const defaultMeetUrl = process.env.MEET_DEFAULT_URL || "";
 const displayName = process.env.MEET_AGENT_DISPLAY_NAME || "Sofia";
 const vncPort = process.env.MEET_BROWSER_NOVNC_PORT || "7900";
@@ -66,6 +67,18 @@ async function browserWebSocketEndpoint() {
   return websocket.toString();
 }
 
+async function devtoolsWebSocketEndpoint(baseUrl) {
+  const response = await fetch(`${baseUrl}/json/version`);
+  if (!response.ok) throw new Error(`DevTools no disponible en ${baseUrl}: ${response.status}`);
+  const data = await response.json();
+  if (!data.webSocketDebuggerUrl) throw new Error(`DevTools en ${baseUrl} no expuso webSocketDebuggerUrl.`);
+  const debug = new URL(baseUrl);
+  const websocket = new URL(data.webSocketDebuggerUrl);
+  websocket.hostname = debug.hostname;
+  websocket.port = debug.port;
+  return websocket.toString();
+}
+
 async function browserInstance() {
   if (browser && browser.connected) return browser;
   browser = await puppeteer.connect({
@@ -91,6 +104,73 @@ async function activePage() {
   page.setDefaultTimeout(5000);
   await page.bringToFront().catch(() => {});
   return page;
+}
+
+async function withSofiaBrowser(fn) {
+  const sofiaBrowser = await puppeteer.connect({
+    browserWSEndpoint: await devtoolsWebSocketEndpoint(sofiaDebugUrl),
+    defaultViewport: { width: 480, height: 270 }
+  });
+  try {
+    return await fn(sofiaBrowser);
+  } finally {
+    await sofiaBrowser.disconnect();
+  }
+}
+
+async function sofiaSourcePage(sofiaBrowser) {
+  const pages = await sofiaBrowser.pages();
+  return pages.find((candidate) => candidate.url().includes("/sofia-source"))
+    || pages.find((candidate) => !candidate.url().startsWith("devtools://"))
+    || await sofiaBrowser.newPage();
+}
+
+async function readSofiaSourceState() {
+  return withSofiaBrowser(async (sofiaBrowser) => {
+    const sourcePage = await sofiaSourcePage(sofiaBrowser);
+    return sourcePage.evaluate(() => {
+      const video = document.getElementById("sofia-video");
+      const stream = video?.captureStream?.();
+      return {
+        url: location.href,
+        title: document.title,
+        sourceState: window.__sofiaSourceState || null,
+        hasAnamClient: Boolean(window.__luzunoAnamClient),
+        video: video ? {
+          readyState: video.readyState,
+          paused: video.paused,
+          muted: video.muted,
+          width: video.videoWidth,
+          height: video.videoHeight,
+          currentTime: video.currentTime,
+          audioTracks: stream?.getAudioTracks().map((track) => ({
+            enabled: track.enabled,
+            muted: track.muted,
+            readyState: track.readyState,
+            label: track.label
+          })) || [],
+          videoTracks: stream?.getVideoTracks().map((track) => ({
+            enabled: track.enabled,
+            muted: track.muted,
+            readyState: track.readyState,
+            label: track.label
+          })) || []
+        } : null
+      };
+    });
+  });
+}
+
+async function reloadSofiaSource() {
+  return withSofiaBrowser(async (sofiaBrowser) => {
+    const sourcePage = await sofiaSourcePage(sofiaBrowser);
+    await sourcePage.goto("http://meet-bridge-sofia:3200/sofia-source", {
+      waitUntil: "domcontentloaded",
+      timeout: 15000
+    });
+    await sleep(3000);
+    return readSofiaSourceState();
+  });
 }
 
 async function cleanupMeetBridge(pageInstance) {
@@ -896,6 +976,9 @@ function html(req) {
     <form method="post" action="/ensure-media">
       <button type="submit">Reactivar audio/video</button>
     </form>
+    <form method="post" action="/restart-sofia-source">
+      <button type="submit">Reiniciar Sofia</button>
+    </form>
     <form method="post" action="/close">
       <button type="submit">Desconectar controlador tecnico</button>
     </form>
@@ -964,6 +1047,13 @@ function sofiaSourceHtml() {
 app.get("/", (req, res) => res.type("html").send(html(req)));
 app.get("/health", (_req, res) => res.json({ ok: true, state }));
 app.get("/sofia-source", (_req, res) => res.type("html").send(sofiaSourceHtml()));
+app.get("/sofia-source-state", async (_req, res, next) => {
+  try {
+    res.json({ ok: true, sofiaSource: await readSofiaSourceState() });
+  } catch (error) {
+    next(error);
+  }
+});
 app.post("/sofia-session", async (_req, res, next) => {
   try {
     const sessionToken = await createAnamSessionToken();
@@ -1114,6 +1204,20 @@ app.post("/ensure-media", async (_req, res, next) => {
     const pageInstance = await activePage();
     keepMediaEnabled(pageInstance, 6).then(() => {
       setState({ message: "Se intento reactivar audio y video de Sofia en Meet." });
+    }).catch((error) => {
+      console.error(error);
+      setState({ status: "error", message: error.message });
+    });
+    res.redirect("/");
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/restart-sofia-source", async (_req, res, next) => {
+  try {
+    reloadSofiaSource().then((sourceState) => {
+      setState({ message: `Se reinicio Sofia. Estado: ${sourceState?.sourceState?.message || "sin detalle"}` });
     }).catch((error) => {
       console.error(error);
       setState({ status: "error", message: error.message });
