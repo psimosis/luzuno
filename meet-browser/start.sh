@@ -13,6 +13,7 @@ export PULSE_LATENCY_MSEC="${PULSE_LATENCY_MSEC:-80}"
 
 mkdir -p "$MEET_PROFILE_DIR" "$SOFIA_PROFILE_DIR" "$PULSE_SOCKET_DIR"
 rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 /tmp/.X100-lock /tmp/.X11-unix/X100
+rm -f "${PULSE_SOCKET_DIR}/native"
 rm -f "$MEET_PROFILE_DIR"/SingletonCookie "$MEET_PROFILE_DIR"/SingletonLock "$MEET_PROFILE_DIR"/SingletonSocket
 rm -f "$SOFIA_PROFILE_DIR"/SingletonCookie "$SOFIA_PROFILE_DIR"/SingletonLock "$SOFIA_PROFILE_DIR"/SingletonSocket
 
@@ -36,7 +37,18 @@ load-module module-remap-source source_name=sofia_audio_source master=sofia_sink
 set-default-sink meet_sink
 set-default-source sofia_audio_source
 PA
-pulseaudio -nF /tmp/luzuno-pulse.pa --daemonize=yes --exit-idle-time=-1 --log-target=stderr || true
+pulseaudio -nF /tmp/luzuno-pulse.pa --daemonize=no --exit-idle-time=-1 --log-target=stderr &
+for i in $(seq 1 50); do
+  if PULSE_SERVER="$PULSE_SERVER" pactl info >/dev/null 2>&1; then
+    break
+  fi
+  if ! kill -0 "$!" >/dev/null 2>&1; then
+    echo "PulseAudio exited before becoming ready." >&2
+    exit 1
+  fi
+  sleep 0.1
+done
+PULSE_SERVER="$PULSE_SERVER" pactl info >/dev/null 2>&1
 
 x11vnc -display :99 -forever -shared -rfbport 5901 -nopw &
 websockify --web=/usr/share/novnc/ 7900 localhost:5901 &

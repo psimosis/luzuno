@@ -164,12 +164,55 @@ async function readSofiaSourceState() {
 async function reloadSofiaSource() {
   return withSofiaBrowser(async (sofiaBrowser) => {
     const sourcePage = await sofiaSourcePage(sofiaBrowser);
-    await sourcePage.goto("http://meet-bridge-sofia:3200/sofia-source", {
+    await sourcePage.goto("about:blank", {
       waitUntil: "domcontentloaded",
       timeout: 15000
     });
-    await sleep(3000);
-    return readSofiaSourceState();
+    await sourcePage.goto("http://meet-bridge-sofia:3200/sofia-source", {
+      waitUntil: "networkidle2",
+      timeout: 30000
+    });
+    await sourcePage.waitForFunction(() => {
+      const video = document.getElementById("sofia-video");
+      const stream = video?.captureStream?.();
+      const tracks = [
+        ...(stream?.getAudioTracks?.() || []),
+        ...(stream?.getVideoTracks?.() || [])
+      ];
+      return Boolean(window.__luzunoAnamClient)
+        && tracks.length > 0
+        && tracks.every((track) => track.readyState === "live");
+    }, { timeout: 30000 }).catch(() => {});
+    return sourcePage.evaluate(() => {
+      const video = document.getElementById("sofia-video");
+      const stream = video?.captureStream?.();
+      return {
+        url: location.href,
+        title: document.title,
+        sourceState: window.__sofiaSourceState || null,
+        hasAnamClient: Boolean(window.__luzunoAnamClient),
+        video: video ? {
+          readyState: video.readyState,
+          paused: video.paused,
+          muted: video.muted,
+          width: video.videoWidth,
+          height: video.videoHeight,
+          currentTime: video.currentTime,
+          audioTracks: stream?.getAudioTracks().map((track) => ({
+            enabled: track.enabled,
+            muted: track.muted,
+            readyState: track.readyState,
+            label: track.label
+          })) || [],
+          videoTracks: stream?.getVideoTracks().map((track) => ({
+            enabled: track.enabled,
+            muted: track.muted,
+            readyState: track.readyState,
+            label: track.label
+          })) || []
+        } : null
+      };
+    });
   });
 }
 
@@ -289,21 +332,45 @@ async function freshMeetPage() {
 
 async function clickButtonByText(pageInstance, labels) {
   return pageInstance.evaluate((buttonLabels) => {
-    const normalizedLabels = buttonLabels.map((item) => item.toLowerCase());
+    const normalize = (value) => (value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+    const normalizedLabels = buttonLabels.map(normalize);
     const buttons = Array.from(document.querySelectorAll("button, [role='button']"));
-    const button = buttons.find((candidate) => {
+    const candidates = buttons.map((candidate) => {
+      const rect = candidate.getBoundingClientRect();
       const text = [
         candidate.innerText,
         candidate.textContent,
         candidate.getAttribute("aria-label"),
         candidate.getAttribute("data-tooltip")
-      ].filter(Boolean).join(" ").toLowerCase();
-      return normalizedLabels.some((label) => text.includes(label));
-    });
+      ].filter(Boolean).join(" ");
+      return {
+        button: candidate,
+        text: normalize(text),
+        visible: rect.width > 0 && rect.height > 0
+      };
+    }).filter((candidate) => candidate.visible);
+    const exact = candidates.find((candidate) => normalizedLabels.some((label) => candidate.text === label));
+    const button = exact?.button || candidates.find((candidate) => {
+      if (candidate.text.includes("telefono") || candidate.text.includes("otras formas")) return false;
+      return normalizedLabels.some((label) => candidate.text.includes(label));
+    })?.button;
     if (!button) return false;
     button.click();
     return true;
   }, labels);
+}
+
+async function clickButtonByTextWithRetry(pageInstance, labels, attempts = 20, intervalMs = 1000) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const clicked = await clickButtonByText(pageInstance, labels).catch(() => false);
+    if (clicked) return true;
+    await sleep(intervalMs);
+  }
+  return false;
 }
 
 async function clickButtonByAria(pageInstance, labels) {
@@ -911,13 +978,16 @@ async function joinMeet(meetUrl) {
   }
   await pageInstance.goto(meetUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
   await maybePrepareMeet(pageInstance);
-  const joined = await clickButtonByText(pageInstance, [
+  const joined = await clickButtonByTextWithRetry(pageInstance, [
     "join now",
     "ask to join",
-    "join",
     "request to join",
     "unirse ahora",
     "unirme ahora",
+    "cambiar aqui",
+    "cambiar aquí",
+    "unirse tambien",
+    "unirse también",
     "solicitar unirse",
     "pedir unirme",
     "participar ahora",
