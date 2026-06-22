@@ -102,9 +102,15 @@ PY
       --disable-dev-shm-usage \
       --disable-gpu \
       --disable-setuid-sandbox \
+      --disable-session-crashed-bubble \
+      --disable-infobars \
+      --noerrdialogs \
       --autoplay-policy=no-user-gesture-required \
       --use-fake-ui-for-media-stream \
       --unsafely-treat-insecure-origin-as-secure=http://meet-bridge-sofia:3200 \
+      --remote-debugging-address=0.0.0.0 \
+      --remote-debugging-port=9224 \
+      --remote-allow-origins=* \
       --user-data-dir="$SOFIA_PROFILE_DIR" \
       --window-size=480,270 \
       "$SOFIA_SOURCE_URL"
@@ -124,6 +130,9 @@ exec env PULSE_SINK=meet_sink PULSE_SOURCE=sofia_audio_source PULSE_SERVER="$PUL
   --disable-dev-shm-usage \
   --disable-gpu \
   --disable-setuid-sandbox \
+  --disable-session-crashed-bubble \
+  --disable-infobars \
+  --noerrdialogs \
   --autoplay-policy=no-user-gesture-required \
   --use-fake-ui-for-media-stream \
   --unsafely-treat-insecure-origin-as-secure=https://meet.google.com,http://meet-bridge-sofia:3200 \

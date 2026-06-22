@@ -893,6 +893,9 @@ function html(req) {
     <form method="post" action="/leave">
       <button type="submit">Salir de Meet</button>
     </form>
+    <form method="post" action="/ensure-media">
+      <button type="submit">Reactivar audio/video</button>
+    </form>
     <form method="post" action="/close">
       <button type="submit">Desconectar controlador tecnico</button>
     </form>
@@ -973,6 +976,22 @@ app.get("/media-state", async (_req, res, next) => {
   try {
     const pageInstance = await activePage();
     const mediaState = await pageInstance.evaluate(async () => {
+      const controls = Array.from(document.querySelectorAll("button, [role='button']")).map((element) => ({
+        text: (element.innerText || element.textContent || "").trim().slice(0, 120),
+        ariaLabel: element.getAttribute("aria-label") || "",
+        tooltip: element.getAttribute("data-tooltip") || "",
+        disabled: Boolean(element.disabled || element.getAttribute("aria-disabled") === "true")
+      })).filter((item) => {
+        const text = `${item.text} ${item.ariaLabel} ${item.tooltip}`.toLowerCase();
+        return text.includes("mic")
+          || text.includes("audio")
+          || text.includes("camera")
+          || text.includes("camara")
+          || text.includes("cÃ¡mara")
+          || text.includes("video")
+          || text.includes("leave")
+          || text.includes("salir");
+      }).slice(0, 30);
       const devices = navigator.mediaDevices?.enumerateDevices
         ? await navigator.mediaDevices.enumerateDevices().then((items) => items.map((device) => ({
           kind: device.kind,
@@ -1029,6 +1048,7 @@ app.get("/media-state", async (_req, res, next) => {
         caption: window.__luzunoLastCaptionMessage || null,
         captionError: window.__luzunoLastCaptionError || null,
         audio: window.__luzunoReadAudioDiagnostics?.() || null,
+        controls,
         devices,
         probe,
         peerConnections,
@@ -1080,6 +1100,21 @@ app.post("/join", async (req, res, next) => {
 app.post("/leave", async (_req, res, next) => {
   try {
     leaveMeet().catch((error) => {
+      console.error(error);
+      setState({ status: "error", message: error.message });
+    });
+    res.redirect("/");
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/ensure-media", async (_req, res, next) => {
+  try {
+    const pageInstance = await activePage();
+    keepMediaEnabled(pageInstance, 6).then(() => {
+      setState({ message: "Se intento reactivar audio y video de Sofia en Meet." });
+    }).catch((error) => {
       console.error(error);
       setState({ status: "error", message: error.message });
     });
