@@ -83,7 +83,7 @@ async function browserInstance() {
   if (browser && browser.connected) return browser;
   browser = await puppeteer.connect({
     browserWSEndpoint: await browserWebSocketEndpoint(),
-    defaultViewport: { width: 1366, height: 768 }
+    defaultViewport: { width: 1024, height: 576 }
   });
   await browser.defaultBrowserContext().overridePermissions("https://meet.google.com", ["camera", "microphone"]).catch(() => {});
   browser.on("disconnected", () => {
@@ -415,7 +415,7 @@ async function fillNameIfPresent(pageInstance) {
 }
 
 async function enableMediaIfOff(pageInstance) {
-  await clickButtonByAria(pageInstance, [
+  const clickedMic = await clickButtonByAria(pageInstance, [
     "turn on microphone",
     "activar mic",
     "activar el mic",
@@ -423,7 +423,8 @@ async function enableMediaIfOff(pageInstance) {
     "activar micrófono",
     "unmute"
   ]).catch(() => false);
-  await clickButtonByAria(pageInstance, [
+  if (clickedMic) await sleep(500);
+  const clickedCamera = await clickButtonByAria(pageInstance, [
     "turn on camera",
     "activar cam",
     "activar la cam",
@@ -431,6 +432,30 @@ async function enableMediaIfOff(pageInstance) {
     "activar cámara",
     "start video"
   ]).catch(() => false);
+  if (clickedCamera) await sleep(500);
+  await pageInstance.evaluate(() => {
+    const bodyText = document.body.innerText
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+    return {
+      micOff: bodyText.includes("activar microfono"),
+      cameraOff: bodyText.includes("activar camara")
+    };
+  }).then(async ({ micOff, cameraOff }) => {
+    if (micOff) {
+      await pageInstance.keyboard.down("Control");
+      await pageInstance.keyboard.press("KeyD");
+      await pageInstance.keyboard.up("Control");
+      await sleep(700);
+    }
+    if (cameraOff) {
+      await pageInstance.keyboard.down("Control");
+      await pageInstance.keyboard.press("KeyE");
+      await pageInstance.keyboard.up("Control");
+      await sleep(700);
+    }
+  }).catch(() => {});
 }
 
 async function keepMediaEnabled(pageInstance, attempts = 4) {
