@@ -2,7 +2,7 @@
 set -eu
 
 MEET_PROFILE_DIR="${MEET_PROFILE_DIR:-/data/chrome-profile}"
-SOFIA_PROFILE_DIR="${SOFIA_PROFILE_DIR:-/data/sofia-profile}"
+SOFIA_PROFILE_DIR="${SOFIA_PROFILE_DIR:-/tmp/sofia-profile}"
 SOFIA_SOURCE_URL="${SOFIA_SOURCE_URL:-http://meet-bridge-sofia:3200/sofia-source}"
 VIRTUAL_CAMERA_DEVICE="${VIRTUAL_CAMERA_DEVICE:-/dev/video10}"
 ENABLE_VIRTUAL_CAMERA="${ENABLE_VIRTUAL_CAMERA:-0}"
@@ -11,6 +11,7 @@ PULSE_SERVER="unix:${PULSE_SOCKET_DIR}/native"
 export PULSE_SERVER
 export PULSE_LATENCY_MSEC="${PULSE_LATENCY_MSEC:-200}"
 
+rm -rf "$SOFIA_PROFILE_DIR"
 mkdir -p "$MEET_PROFILE_DIR" "$SOFIA_PROFILE_DIR" "$PULSE_SOCKET_DIR"
 rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 /tmp/.X100-lock /tmp/.X11-unix/X100
 rm -f "${PULSE_SOCKET_DIR}/native"
@@ -130,7 +131,11 @@ PY
       --disable-gpu \
       --disable-setuid-sandbox \
       --disable-session-crashed-bubble \
+      --hide-crash-restore-bubble \
       --disable-infobars \
+      --disable-translate \
+      --disable-features=Translate,TranslateUI \
+      --no-first-run \
       --noerrdialogs \
       --autoplay-policy=no-user-gesture-required \
       --use-fake-ui-for-media-stream \
@@ -140,7 +145,7 @@ PY
       --remote-allow-origins=* \
       --user-data-dir="$SOFIA_PROFILE_DIR" \
       --window-size=480,270 \
-      "$SOFIA_SOURCE_URL"
+      --app="$SOFIA_SOURCE_URL"
   ) &
 
   if [ -e "$VIRTUAL_CAMERA_DEVICE" ]; then
