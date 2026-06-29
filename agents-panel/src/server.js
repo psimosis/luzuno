@@ -8,6 +8,7 @@ import session from "express-session";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { migrate, upsertUserProfile, getUserSettings, getApiKey, setApiKeyForUser, listUserSettings, saveAgentSettings, getAgentSettings, listAgentSettingsForUser, saveAgentProfileImage, saveAgentPersonaDetails, saveAgentVoice, saveClientDetails, saveClientBillingSettings, listBillingConcepts, addBillingConcept, deleteBillingConcept, listBillingInvoices, getBillingInvoice, findBillingInvoice, createBillingInvoice } from "./db.js";
 import { listAgents, getAgent, updateAgent, publishAgent, listVoices, filterVoices, createVoicePreview, listAllConversationsForAgent } from "./elevenlabs.js";
+import { clientExportRows, generateClientsCsv, generateClientsPdf } from "./client-exports.js";
 import { generateInvoicePdf } from "./invoice-pdf.js";
 import { generateProfileImage } from "./openai-images.js";
 import { adminPage, agentDetail, billingPage, clientsPage, dashboard, loginPage } from "./views.js";
@@ -770,6 +771,30 @@ app.get("/clients", requireAdmin, async (req, res) => {
     res.send(clientsPage(req, users, localUsers, selectedUserId, req.query.saved ? "Cliente guardado." : ""));
   } catch (error) {
     res.send(clientsPage(req, [], [], "", "", error.message));
+  }
+});
+
+app.get("/clients/export.csv", requireAdmin, async (_req, res, next) => {
+  try {
+    const [users, localUsers] = await Promise.all([listUsers(), listUserSettings()]);
+    const csv = generateClientsCsv(clientExportRows(users, localUsers));
+    res.setHeader("content-type", "text/csv; charset=utf-8");
+    res.setHeader("content-disposition", "attachment; filename=\"clientes-luzuno.csv\"");
+    res.send(csv);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/clients/export.pdf", requireAdmin, async (_req, res, next) => {
+  try {
+    const [users, localUsers] = await Promise.all([listUsers(), listUserSettings()]);
+    const pdf = generateClientsPdf(clientExportRows(users, localUsers));
+    res.setHeader("content-type", "application/pdf");
+    res.setHeader("content-disposition", "inline; filename=\"clientes-luzuno.pdf\"");
+    res.send(pdf);
+  } catch (error) {
+    next(error);
   }
 });
 

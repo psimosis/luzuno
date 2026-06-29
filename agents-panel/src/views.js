@@ -400,7 +400,13 @@ export function clientsPage(req, users, localUsers, selectedUserId = "", message
     ${error ? `<div class="alert">${esc(error)}</div>` : ""}
     <section class="clients-layout">
       <article class="panel clients-list">
-        <h2>${lineIcon("person")}Clientes</h2>
+        <div class="clients-list-head">
+          <h2>${lineIcon("person")}Clientes</h2>
+          <div class="client-export-actions">
+            <a class="secondary" href="/clients/export.csv">CSV</a>
+            <a class="primary" href="/clients/export.pdf" target="_blank">PDF</a>
+          </div>
+        </div>
         <div class="client-search">
           <span aria-hidden="true">⌕</span>
           <input id="client-search" type="search" placeholder="Buscar cliente">

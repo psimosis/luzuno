@@ -587,6 +587,26 @@ h2 { margin: 0 0 16px; font-size: 18px; }
   position: sticky;
   top: 92px;
 }
+.clients-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.clients-list-head h2 {
+  margin: 0;
+}
+.client-export-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+.client-export-actions .primary,
+.client-export-actions .secondary {
+  min-height: 34px;
+  padding: 8px 11px;
+  font-size: 12px;
+}
 .client-list-items {
   display: grid;
   gap: 8px;
